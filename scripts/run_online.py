@@ -36,7 +36,8 @@ def run(images, ckpt_depth, ckpt_match, size, force_ar, output, export_mode, nam
         skip_existing=False, skip_failures=False, frame_step=1, seed=0,
         device='cuda', dtype=torch.float32, **options):
     dataset = load_dataset(images, size=size, force_ar=force_ar, online=True, name=name)
-    depther = load_depth_model(ckpt_depth, device=device, dtype=dtype)
+    depther = load_depth_model(ckpt_depth, device=device, dtype=dtype,
+                               backend=options.get('depth_backend', 'blast3r'))
     matcher = load_match_model(ckpt_match, device=device, dtype=dtype)
 
     for i, (ds_tag, scene, sequence) in enumerate(dataset):

@@ -19,14 +19,18 @@ from blast3r.inference.timing import timer
 
 
 def arg_parser():
-    return base_parser('BLASt3R offline reconstruction')
+    parser = base_parser('BLASt3R offline reconstruction')
+    parser.add_argument('--vggt_refine_head', action='store_true',
+                        help='optimize 15 PCA feature weights plus bias per image using LM; requires VGGT')
+    return parser
 
 
 def run(images, ckpt_depth, ckpt_match, size, force_ar, output, export_mode, name=None,
         skip_existing=False, skip_failures=False, seed=0, device='cuda', dtype=torch.float32,
         **options):
     dataset = load_dataset(images, size=size, force_ar=force_ar, name=name)
-    depther = load_depth_model(ckpt_depth, device=device, dtype=dtype)
+    depther = load_depth_model(ckpt_depth, device=device, dtype=dtype,
+                               backend=options.get('depth_backend', 'blast3r'))
     matcher = load_match_model(ckpt_match, device=device, dtype=dtype)
 
     for i, views in enumerate(dataset):
