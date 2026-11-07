@@ -1,35 +1,37 @@
 #!/bin/bash
 
+source "$(dirname -- "${BASH_SOURCE[0]}")/scripts/experiment_paths.sh" || exit 1
+
 # MIP360
 # RUN BASE BLAST3R
-# python scripts/run_offline.py --images  /home/se7882ca/Documents/scsv/datasets/mip360/bicycle/images_2 --output out/mip360/bycicle/blast3r/test_00 --mono_cam
+# "$BLAST3R_PYTHON" scripts/run_offline.py --images  "$BLAST3R_BICYCLE_IMAGES" --output "$BLAST3R_OUTPUT_ROOT/mip360/bycicle/blast3r/test_00" --mono_cam
 
 # VISUALIZE OUTPUT
-# python scripts/visualize.py --scene  out/mip360/bycicle/blast3r/test_00/images_2.pth
+# "$BLAST3R_PYTHON" scripts/visualize.py --scene  "$BLAST3R_OUTPUT_ROOT/mip360/bycicle/blast3r/test_00/images_2.pth"
 
 # RUN VGGT
-python scripts/run_offline.py --images  /home/se7882ca/Documents/scsv/datasets/mip360/bicycle/images_2 --output out/mip360/bycicle/vggt/test_00 --mono_cam --depth_backend vggt --ckpt_depth /fast-storage/huggingface/hub/models--facebook--VGGT-Omega/snapshots/1041e80fc0e911235d3426b0a3d9a81075111a53/vggt_omega_1b_512.pt
+"$BLAST3R_PYTHON" scripts/run_offline.py --images  "$BLAST3R_BICYCLE_IMAGES" --output "$BLAST3R_OUTPUT_ROOT/mip360/bycicle/vggt/test_00" --mono_cam --depth_backend vggt --ckpt_depth "$BLAST3R_VGGT_CHECKPOINT"
 
 # VISUALIZE OUTPUT
-# python scripts/visualize.py --scene  out/mip360/bycicle/vggt/test_00/images_2.pth
+# "$BLAST3R_PYTHON" scripts/visualize.py --scene  "$BLAST3R_OUTPUT_ROOT/mip360/bycicle/vggt/test_00/images_2.pth"
 
 # RUN VGGT + REFINED HEAD
-# python scripts/run_offline.py --images  /home/se7882ca/Documents/scsv/datasets/mip360/bicycle/images_2 --output out/mip360/bycicle/vggt_refined_257/test_00 --mono_cam --depth_backend vggt --ckpt_depth /fast-storage/huggingface/hub/models--facebook--VGGT-Omega/snapshots/1041e80fc0e911235d3426b0a3d9a81075111a53/vggt_omega_1b_512.pt --vggt_refine_head
+# "$BLAST3R_PYTHON" scripts/run_offline.py --images  "$BLAST3R_BICYCLE_IMAGES" --output "$BLAST3R_OUTPUT_ROOT/mip360/bycicle/vggt_refined_257/test_00" --mono_cam --depth_backend vggt --ckpt_depth "$BLAST3R_VGGT_CHECKPOINT" --vggt_refine_head
 
 # VISUALIZE OUTPUT
-# python scripts/visualize.py --scene  out/mip360/bycicle/vggt_refined_257/test_00/images_2.pth
+# "$BLAST3R_PYTHON" scripts/visualize.py --scene  "$BLAST3R_OUTPUT_ROOT/mip360/bycicle/vggt_refined_257/test_00/images_2.pth"
 
 
 # ETH3D
 
 # RUN BASE BLAST3R
-# python scripts/run_offline.py --images /home/se7882ca/Documents/scsv/datasets/eth3d/multi_view_training_dslr_undistorted/courtyard/images/dslr_images_undistorted --output out/eth3d/courtyard/blast3r/test_00 --mono_cam
+# "$BLAST3R_PYTHON" scripts/run_offline.py --images "$BLAST3R_COURTYARD_IMAGES" --output "$BLAST3R_OUTPUT_ROOT/eth3d/courtyard/blast3r/test_00" --mono_cam
 
 # VISUALIZE OUTPUT
-# python scripts/visualize.py --scene  out/eth3d/courtyard/blast3r/test_00/dslr_images_undistorted.pth
+# "$BLAST3R_PYTHON" scripts/visualize.py --scene  "$BLAST3R_OUTPUT_ROOT/eth3d/courtyard/blast3r/test_00/$(basename -- "$BLAST3R_COURTYARD_IMAGES").pth"
 
 # RUN VGGT
-# python scripts/run_offline.py --images  /home/se7882ca/Documents/scsv/datasets/eth3d/multi_view_training_dslr_undistorted/courtyard/images/dslr_images_undistorted --output out/eth3d/courtyard/vggt/test_00 --mono_cam --depth_backend vggt --ckpt_depth /fast-storage/huggingface/hub/models--facebook--VGGT-Omega/snapshots/1041e80fc0e911235d3426b0a3d9a81075111a53/vggt_omega_1b_512.pt
+# "$BLAST3R_PYTHON" scripts/run_offline.py --images  "$BLAST3R_COURTYARD_IMAGES" --output "$BLAST3R_OUTPUT_ROOT/eth3d/courtyard/vggt/test_00" --mono_cam --depth_backend vggt --ckpt_depth "$BLAST3R_VGGT_CHECKPOINT"
 
 # VISUALIZE OUTPUT
-# python scripts/visualize.py --scene  out/eth3d/courtyard/vggt/test_00/dslr_images_undistorted.pth
+# "$BLAST3R_PYTHON" scripts/visualize.py --scene  "$BLAST3R_OUTPUT_ROOT/eth3d/courtyard/vggt/test_00/$(basename -- "$BLAST3R_COURTYARD_IMAGES").pth"

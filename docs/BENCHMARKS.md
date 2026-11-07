@@ -96,3 +96,59 @@ more coarsely than the ground truth. `--interpolate`, which the published
 numbers use, interpolates it onto every ground-truth frame before measuring the
 error. The alternative, `--allow_subset`, measures only the reconstructed frames
 and reports the fraction covered.
+
+## Local VGGT comparison scripts
+
+`run.sh` contains the Bicycle/Courtyard reconstruction examples; `eval.sh`
+contains the ETH3D comparison commands. Both load `scripts/experiment_paths.sh`
+and run from the BLASt3R checkout, so they can be invoked from any directory:
+
+```bash
+bash third_party/blast3r/run.sh
+bash third_party/blast3r/eval.sh
+```
+
+Configure paths with environment variables or create `experiments.local.sh` in
+this checkout (gitignored). To use a different shell config file, set
+`BLAST3R_CONFIG=/absolute/path/to/config.sh`. Config file assignments take
+precedence over inherited environment variables; defaults fill unset or empty
+values. Use `${VARIABLE:-default}` assignments in local config if you want to
+preserve environment overrides. Quote paths containing spaces.
+
+| Variable | Default on Berzelius |
+|---|---|
+| `BLAST3R_DATA_ROOT` | `/proj/vlarsson/datasets` |
+| `BLAST3R_CHECKPOINT_ROOT` | `/proj/vlarsson/checkpoints` |
+| `BLAST3R_VGGT_CHECKPOINT` | `$BLAST3R_CHECKPOINT_ROOT/vggt_omega_1b_512.pt` |
+| `BLAST3R_MIP360_ROOT` | `$BLAST3R_DATA_ROOT/mip360` |
+| `BLAST3R_ETH3D_ROOT` | `$BLAST3R_DATA_ROOT/eth3d-eval/eth3d_processed` |
+| `BLAST3R_BICYCLE_IMAGES` | `$BLAST3R_MIP360_ROOT/bicycle/images_2` |
+| `BLAST3R_COURTYARD_IMAGES` | `$BLAST3R_ETH3D_ROOT/courtyard/undistorted_images` if present; otherwise `courtyard/images/dslr_images_undistorted` under the same root |
+| `BLAST3R_OUTPUT_ROOT` | `<checkout>/out` |
+| `BLAST3R_EVAL_ROOT` | `<checkout>/outputs/evaluation/eth3d` |
+| `BLAST3R_ETH3D_GT` | `$BLAST3R_EVAL_ROOT/gt` |
+| `BLAST3R_PYTHON` | `<checkout>/.venv/bin/python` if executable, otherwise `python` from the active environment |
+
+For Sebastian's machine, put these assignments in `experiments.local.sh`:
+
+```bash
+BLAST3R_DATA_ROOT=/home/se7882ca/Documents/scsv/datasets
+BLAST3R_ETH3D_ROOT="$BLAST3R_DATA_ROOT/eth3d/multi_view_training_dslr_undistorted"
+BLAST3R_VGGT_CHECKPOINT=/fast-storage/huggingface/hub/models--facebook--VGGT-Omega/snapshots/1041e80fc0e911235d3426b0a3d9a81075111a53/vggt_omega_1b_512.pt
+```
+
+Or override a path for one invocation:
+
+```bash
+BLAST3R_PYTHON=/path/to/env/bin/python bash run.sh
+BLAST3R_EVAL_ROOT=/path/to/results bash eval.sh
+```
+
+These settings configure paths only. The reconstruction blocks in `eval.sh`
+remain commented; its active commands evaluate existing predictions. `run.sh`
+currently runs the Bicycle VGGT example.
+
+The Berzelius ETH3D dataset uses `undistorted_images/` and per-image `.npy`
+poses. `prepare_eth3d.py` currently expects the official COLMAP calibration
+layout, so that preparation step needs a layout adapter before it can consume
+this processed dataset. Changing `BLAST3R_ETH3D_ROOT` alone does not convert it.
