@@ -39,3 +39,6 @@ CLAUDE.md
 
 # Machine-specific experiment configuration
 experiments.local.sh
+
+# Reproducible experiment inputs and prediction caches
+.cache/

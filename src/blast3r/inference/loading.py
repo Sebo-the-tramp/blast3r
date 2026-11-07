@@ -8,27 +8,13 @@ from pathlib import Path
 
 import torch
 from huggingface_hub import snapshot_download
-from safetensors.torch import load_file
 
 from blast3r.image import IMAGE_SUFFIXES, is_video_file, load_image, load_images, load_video
-from blast3r.models.coarse_matcher import CoarseDot2
-from blast3r.models.dense_matcher import DenseDotViT2Mlp_Kpt
-from blast3r.models.layers import LinearPatchifier, MlpHead, PositionAugmentor
-from blast3r.models.model import CausalTrack3R_WithRayMaps
-from blast3r.models.mono_depth import MonoDepth
 from blast3r.utils.device import stack
 
 # Released checkpoints, downloaded on first use unless a local directory is given.
 CKPT_MATCH = 'naver/blast3r-matcher'
 CKPT_DEPTH = 'naver/blast3r-depth'
-
-# Classes a checkpoint's config.json may name. Nothing else is in scope.
-MODEL_CLASSES = {
-    c.__name__: c for c in (
-        CausalTrack3R_WithRayMaps, CoarseDot2, DenseDotViT2Mlp_Kpt, MonoDepth,
-        LinearPatchifier, MlpHead,
-    )
-}
 
 # Keyword arguments whose value is itself a class name.
 CLASS_KWARGS = ('Patchifier', 'Head')
@@ -129,6 +115,12 @@ def load_scene(path, online=False, name=None, max_frames=None, seed=0, **load_kw
         if online:
             return (path.parent.name, label, LazyFrames(images, **load_kw))
 
+        from .scene_cache import load_cached_views
+        views = load_cached_views(path, images, **load_kw)
+        if views is not None:
+            views['label'] = [label] * len(images)
+            return views
+
         views = load_images(images, **load_kw)
         views = {k: stack([view[k] for view in views]) for k in views[0]}
         views['label'] = [label] * len(images)
@@ -153,6 +145,20 @@ def load_scene(path, online=False, name=None, max_frames=None, seed=0, **load_kw
 
 def build_model(config):
     """Instantiate the model described by a checkpoint's `config.json`."""
+    from blast3r.models.coarse_matcher import CoarseDot2
+    from blast3r.models.dense_matcher import DenseDotViT2Mlp_Kpt
+    from blast3r.models.layers import LinearPatchifier, MlpHead
+    from blast3r.models.model import CausalTrack3R_WithRayMaps
+    from blast3r.models.mono_depth import MonoDepth
+
+    # Classes a checkpoint's config.json may name. Nothing else is in scope.
+    MODEL_CLASSES = {
+        c.__name__: c for c in (
+            CausalTrack3R_WithRayMaps, CoarseDot2, DenseDotViT2Mlp_Kpt, MonoDepth,
+            LinearPatchifier, MlpHead,
+        )
+    }
+
     def resolve(name):
         if name not in MODEL_CLASSES:
             raise ValueError(f'config names {name!r}, which this release does not provide')
@@ -180,6 +186,9 @@ def resolve_checkpoint(path):
 
 
 def load_model(path, device, dtype=None):
+    from safetensors.torch import load_file
+    from blast3r.models.layers import PositionAugmentor
+
     path = resolve_checkpoint(path)
     print('>> Loading model at', path)
     config = json.loads((path / 'config.json').read_text())

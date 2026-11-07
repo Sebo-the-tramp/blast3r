@@ -2,7 +2,7 @@
 
 import types
 import hashlib
-import tempfile
+import os
 from pathlib import Path
 from time import perf_counter
 from tqdm.auto import tqdm
@@ -11,6 +11,7 @@ from torch import autocast
 
 from blast3r.utils.device import todevice
 from blast3r.image import detokenize
+from .scene_cache import atomic_torch_save
 from blast3r.utils.geometry import depthmap_to_pts3d
 
 
@@ -72,15 +73,13 @@ def compute_pts3d_multidepths_blast3r(model, views):
 
 
 @torch.inference_mode()
-def compute_pts3d_multidepths_vggt(model, views, refine_head=False):
+def compute_pts3d_multidepths_vggt(model, views, refine_head=False, cache_dir=None):
     """Run VGGT-Omega independently on each preprocessed BLASt3R image.
 
     Requires a loaded VGGT-Omega model in eval mode with its depth head enabled,
     and either supplied intrinsics or an enabled camera head. Outputs use the
     input pixel grid and a two-channel log-depth basis (log depth, constant).
     """
-    from vggt_omega.utils.pose_enc import encoding_to_camera
-
     images = views['img']
     if images.ndim == 4:
         images = images.unsqueeze(0)
@@ -104,7 +103,7 @@ def compute_pts3d_multidepths_vggt(model, views, refine_head=False):
             digest.update(name.encode())
             digest.update(tensor.detach().cpu().contiguous().view(torch.uint8).numpy().tobytes())
         identity = digest.hexdigest()
-    cache_dir = Path('.cache') / 'vggt_monodepth'
+    cache_dir = Path(cache_dir) if cache_dir is not None else Path(os.environ.get('BLAST3R_CACHE_ROOT', '.cache')) / 'vggt_monodepth'
     cache_dir.mkdir(parents=True, exist_ok=True)
     model_ready = False
     conf, pts3d, multidepth = [], [], []
@@ -115,17 +114,14 @@ def compute_pts3d_multidepths_vggt(model, views, refine_head=False):
             torch.cuda.synchronize(device)
         started = perf_counter()
         H, W = map(int, shapes[i])
-        digest = hashlib.sha256(f'v1:{identity}:{H}:{W}'.encode())
-        digest.update(patches.detach().float().cpu().contiguous().numpy().tobytes())
-        if intrinsics is not None:
-            digest.update(torch.as_tensor(intrinsics[i]).float().cpu().contiguous().numpy().tobytes())
-        cache_file = cache_dir / f'{digest.hexdigest()}.pth'
+        cache_file = vggt_cache_file(cache_dir, identity, patches, (H, W),
+                                     intrinsics[i] if intrinsics is not None else None)
         if cache_file.is_file():
             result = torch.load(cache_file, map_location='cpu', weights_only=True)
             if 'projection_features' in result:
                 conf.append(result['conf'].to(device))
                 pts3d.append(result['pts3d'].to(device))
-                multidepth.append(vggt_pca_head_basis(result['multidepth'], result['projection_features'])
+                multidepth.append(cached_vggt_pca_basis(result, cache_file)
                                   if refine_head else result['multidepth'].to(device))
                 progress.set_postfix_str(f'cache hit, {perf_counter() - started:.2f} s/frame')
                 del result
@@ -157,6 +153,7 @@ def compute_pts3d_multidepths_vggt(model, views, refine_head=False):
         else:
             if 'pose_enc' not in pred:
                 raise ValueError('VGGT-Omega needs its camera head enabled when views have no K')
+            from vggt_omega.utils.pose_enc import encoding_to_camera
             _, K = encoding_to_camera(pred['pose_enc'].float(), (H, W))
             K = K[0, 0]
 
@@ -173,16 +170,10 @@ def compute_pts3d_multidepths_vggt(model, views, refine_head=False):
             'metadata': {'checkpoint': identity, 'processed_size_hw': (H, W),
                          'projection_features_layer': 'dense_head.proj.input'},
         }
-        # Atomic replacement avoids leaving a partial cache after interruption.
-        with tempfile.NamedTemporaryFile(dir=cache_dir, suffix='.tmp', delete=False) as tmp:
-            temporary = Path(tmp.name)
-        try:
-            torch.save(result, temporary)
-            temporary.replace(cache_file)
-        finally:
-            temporary.unlink(missing_ok=True)
         if refine_head:
-            multidepth[-1] = vggt_pca_head_basis(result['multidepth'], result['projection_features'])
+            multidepth[-1] = cached_vggt_pca_basis(result, cache_file)
+        else:
+            atomic_torch_save(result, cache_file)
         del result, captured
         if device.type == 'cuda':
             torch.cuda.synchronize(device)
@@ -190,6 +181,26 @@ def compute_pts3d_multidepths_vggt(model, views, refine_head=False):
         del pred, rgb
 
     return conf, pts3d, multidepth, 'log_multidepth'
+
+
+def vggt_cache_file(cache_dir, identity, patches, shape, intrinsics=None):
+    """The same content-addressed filename for inference and per-scene indexes."""
+    H, W = map(int, shape)
+    digest = hashlib.sha256(f'v1:{identity}:{H}:{W}'.encode())
+    digest.update(patches.detach().float().cpu().contiguous().numpy().tobytes())
+    if intrinsics is not None:
+        digest.update(torch.as_tensor(intrinsics).float().cpu().contiguous().numpy().tobytes())
+    return Path(cache_dir) / f'{digest.hexdigest()}.pth'
+
+
+def cached_vggt_pca_basis(result, cache_file):
+    """Retain raw 256-channel features and reuse the default PCA-15 decomposition."""
+    version = 'pca15-whitened-bilinear-v1-floor1e-6'
+    if result.get('pca_version') != version:
+        result['pca_basis'] = vggt_pca_head_basis(result['multidepth'], result['projection_features'])
+        result['pca_version'] = version
+        atomic_torch_save(result, cache_file)
+    return result['pca_basis']
 
 
 def vggt_pca_head_basis(base_multidepth, projection_features, eigenvalue_floor=1e-6, pca_dim=15):

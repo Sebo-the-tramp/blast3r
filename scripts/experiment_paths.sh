@@ -28,6 +28,9 @@ if [[ -d "$BLAST3R_ETH3D_ROOT/courtyard/undistorted_images" ]]; then
 else
     : "${BLAST3R_COURTYARD_IMAGES:=$BLAST3R_ETH3D_ROOT/courtyard/images/dslr_images_undistorted}"
 fi
+: "${BLAST3R_CACHE_ROOT:=$BLAST3R_ROOT/.cache}"
+: "${BLAST3R_ETH3D_10:=$BLAST3R_CACHE_ROOT/eth3d_10_seed0/scenes}"
+export BLAST3R_CACHE_ROOT
 : "${BLAST3R_OUTPUT_ROOT:=$BLAST3R_ROOT/out}"
 : "${BLAST3R_EVAL_ROOT:=$BLAST3R_ROOT/outputs/evaluation/eth3d}"
 : "${BLAST3R_ETH3D_GT:=$BLAST3R_EVAL_ROOT/gt}"

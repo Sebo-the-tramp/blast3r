@@ -100,7 +100,8 @@ and reports the fraction covered.
 ## Local VGGT comparison scripts
 
 `run.sh` contains the Bicycle/Courtyard reconstruction examples; `eval.sh`
-contains the ETH3D comparison commands. Both load `scripts/experiment_paths.sh`
+contains the ETH3D comparison commands; `cache_eth3d.sh` builds their frozen
+10-image dataset and VGGT caches. All load `scripts/experiment_paths.sh`
 and run from the BLASt3R checkout, so they can be invoked from any directory:
 
 ```bash
@@ -124,6 +125,8 @@ preserve environment overrides. Quote paths containing spaces.
 | `BLAST3R_ETH3D_ROOT` | `$BLAST3R_DATA_ROOT/eth3d-eval/eth3d_processed` |
 | `BLAST3R_BICYCLE_IMAGES` | `$BLAST3R_MIP360_ROOT/bicycle/images_2` |
 | `BLAST3R_COURTYARD_IMAGES` | `$BLAST3R_ETH3D_ROOT/courtyard/undistorted_images` if present; otherwise `courtyard/images/dslr_images_undistorted` under the same root |
+| `BLAST3R_CACHE_ROOT` | `<checkout>/.cache` (exported for Python inference) |
+| `BLAST3R_ETH3D_10` | `$BLAST3R_CACHE_ROOT/eth3d_10_seed0/scenes` |
 | `BLAST3R_OUTPUT_ROOT` | `<checkout>/out` |
 | `BLAST3R_EVAL_ROOT` | `<checkout>/outputs/evaluation/eth3d` |
 | `BLAST3R_ETH3D_GT` | `$BLAST3R_EVAL_ROOT/gt` |
@@ -148,7 +151,83 @@ These settings configure paths only. The reconstruction blocks in `eval.sh`
 remain commented; its active commands evaluate existing predictions. `run.sh`
 currently runs the Bicycle VGGT example.
 
-The Berzelius ETH3D dataset uses `undistorted_images/` and per-image `.npy`
-poses. `prepare_eth3d.py` currently expects the official COLMAP calibration
-layout, so that preparation step needs a layout adapter before it can consume
-this processed dataset. Changing `BLAST3R_ETH3D_ROOT` alone does not convert it.
+`prepare_eth3d.py` and the cache builder accept both the official COLMAP layout
+and the Berzelius processed layout (`undistorted_images/` and per-image
+camera-from-world `poses/*.npy`). Processed poses are inverted for evaluation.
+
+## Frozen 10-image ETH3D cache
+
+From the BLASt3R checkout, with a Python environment containing PyTorch,
+torchvision, the image-loading dependencies and VGGT-Omega:
+
+```bash
+bash cache_eth3d.sh
+```
+
+The builder uses the existing scene-name-dependent sampling algorithm with
+`--seed 0`, selecting exactly 10 images for each of the 13 training scenes.
+These are the same selections as running `--max_frames 10 --seed 0` on the
+full prepared scene directories. Each selected image is copied once, so future
+experiments read a frozen local dataset rather than select from a changing
+source directory. Re-running resumes existing caches; a changed selection or
+image content raises an error instead of silently replacing the experiment.
+Use another `BLAST3R_ETH3D_10` directory for a different selection.
+
+The default artifacts (all gitignored) are:
+
+```text
+.cache/
+  eth3d_10_seed0/scenes/<scene>/
+    <10 original image files>
+    selection.json          # seed, source paths, filenames, SHA-256 hashes
+    gt.pkl                  # selected camera-to-world GT, for evaluation only
+    preprocessed.pth        # normalized/tokenized images at size 512
+    vggt_cache.json          # filename-to-feature-cache mapping; paths relative to scene
+  vggt_monodepth/<hash>.pth  # raw features, depth, confidence, intrinsics, PCA
+```
+
+Each VGGT cache entry retains the full **256-channel input to `dense_head.proj`**,
+base log depth, confidence, pointmap, predicted intrinsics, and the whitened
+PCA-15 correction basis. Raw features remain available for other PCA ranks.
+PCA is fitted independently per image without GT. Neither GT intrinsics nor
+poses are provided to inference; `gt.pkl` is read only by evaluation.
+
+Offline image loading reuses `preprocessed.pth` when filenames, sizes, mtimes,
+image size, crop aspect ratio and patch size match. Other preprocessing settings
+fall back to normal image loading. VGGT cache keys include the processed image
+content, supplied intrinsics if any, and checkpoint identity (resolved filename,
+size and mtime). PCA-15 has its own version marker. Cache writes are atomic.
+Warm VGGT caches skip checkpoint loading and network inference; PCA refinement
+also skips the eigendecomposition.
+
+The three 10-image comparison commands in `eval.sh` use
+`BLAST3R_ETH3D_10` for both inference and GT. The full-scene examples continue
+to use `BLAST3R_ETH3D_GT`. Standard BLAST3R reuses cached image preprocessing;
+VGGT scale-only and PCA-15 runs also reuse the depth/feature predictions.
+
+For a different machine, override the paths described above. To prepare only
+images, GT and preprocessing without running VGGT:
+
+```bash
+bash cache_eth3d.sh --prepare_only
+```
+
+To cache one scene first:
+
+```bash
+bash cache_eth3d.sh --scenes courtyard
+```
+
+On this Berzelius checkout, the initial build used the existing EPO environment
+and the VGGT-Omega source already present in `third_party/epo`. From the parent
+SC3R repository, run on an allocated GPU node:
+
+```bash
+export PYTHONPATH="$PWD/third_party/blast3r/src:$PWD/third_party/epo/third_party/vggt-omega${PYTHONPATH:+:$PYTHONPATH}"
+BLAST3R_PYTHON=/home/x_luddi/.conda/envs/epo/bin/python \
+  bash third_party/blast3r/cache_eth3d.sh
+```
+
+This cache-only build does not require compiling BLAST3R's CUDA extensions or
+installing its matcher/retrieval dependencies. Those remain necessary for full
+reconstruction experiments.

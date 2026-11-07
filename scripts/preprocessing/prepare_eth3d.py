@@ -8,9 +8,12 @@
 `--eth3d_root` is the official ETH3D high-resolution multi-view download, one
 directory per scene, each holding `dslr_calibration_undistorted/` and
 `images/dslr_images_undistorted/`. Writes one directory per scene, its images
-symlinked and its ground-truth poses in `gt.pkl`.
+symlinked and its ground-truth poses in `gt.pkl`. Also accepts processed scenes
+with `undistorted_images/` and camera-from-world `poses/*.npy`.
 """
 import argparse
+
+import numpy as np
 from pathlib import Path
 
 from blast3r.eval.colmap import read_images as read_colmap_images
@@ -25,16 +28,39 @@ CALIBRATION = 'dslr_calibration_undistorted'
 IMAGES = 'images'
 
 
+def read_scene(scene_dir):
+    """Return source images and camera-to-world GT, for either ETH3D layout."""
+    scene_dir = Path(scene_dir)
+    if (scene_dir / 'undistorted_images').is_dir():
+        from blast3r.image import IMAGE_SUFFIXES
+        paths = sorted(p for p in (scene_dir / 'undistorted_images').iterdir()
+                       if p.is_file() and p.suffix.lower() in IMAGE_SUFFIXES)
+        poses = []
+        for path in paths:
+            world_to_camera = np.load(scene_dir / 'poses' / f'{path.stem}.npy', allow_pickle=False)
+            if (world_to_camera.shape != (4, 4) or not np.isfinite(world_to_camera).all()
+                    or not np.allclose(world_to_camera[3], [0, 0, 0, 1])):
+                raise ValueError(f'Invalid world-to-camera pose for {path}')
+            poses.append(np.linalg.inv(world_to_camera))
+    else:
+        images = read_colmap_images(scene_dir / CALIBRATION)
+        names = sorted(images)
+        paths = [scene_dir / IMAGES / name for name in names]
+        poses = [colmap_pose(*images[name]) for name in names]
+    if not paths:
+        raise ValueError(f'No images found in {scene_dir}')
+    if len({path.name for path in paths}) != len(paths):
+        raise ValueError(f'Duplicate image basenames in {scene_dir}')
+    missing = [path for path in paths if not path.is_file()]
+    if missing:
+        raise FileNotFoundError(f'{len(missing)} images are missing, e.g. {missing[0]}')
+    return paths, poses
+
+
 def prepare_scene(scene_dir, out_dir):
-    images = read_colmap_images(Path(scene_dir) / CALIBRATION)
-
-    names = sorted(images)
-    paths = [Path(scene_dir) / IMAGES / name for name in names]
-    missing = [p for p in paths if not p.is_file()]
-    assert not missing, f'{len(missing)} images are missing, e.g. {missing[0]}'
-
-    write_scene(out_dir, paths, [colmap_pose(*images[name]) for name in names])
-    return len(names)
+    paths, poses = read_scene(scene_dir)
+    write_scene(out_dir, paths, poses)
+    return len(paths)
 
 
 def main():

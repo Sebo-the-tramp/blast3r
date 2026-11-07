@@ -4,6 +4,9 @@ source "$(dirname -- "${BASH_SOURCE[0]}")/scripts/experiment_paths.sh" || exit 1
 
 ## PREPARATION ##
 
+# Build the frozen 10-image dataset and VGGT feature cache first:
+# bash cache_eth3d.sh
+
 # "$BLAST3R_PYTHON" scripts/preprocessing/prepare_eth3d.py \
 #   --eth3d_root "$BLAST3R_ETH3D_ROOT" \
 #   --out "$BLAST3R_ETH3D_GT"\
@@ -46,7 +49,7 @@ MAX_IMAGES=10 # -1 for all images, 10 for testing
 
 # # Reconstruct all scenes using blast3r
 # "$BLAST3R_PYTHON" scripts/run_offline.py \
-#   --images "$BLAST3R_ETH3D_GT"/*/ \
+#   --images "$BLAST3R_ETH3D_10"/*/ \
 #   --output "$BLAST3R_EVAL_ROOT/blast3r_nz1_${MAX_IMAGES}_max_imgs" \
 #   --depth_backend blast3r \
 #   --mono_cam \
@@ -67,7 +70,7 @@ MAX_IMAGES=10 # -1 for all images, 10 for testing
 
 # # Reconstruct all scenes using VGGT no refinement:
 # "$BLAST3R_PYTHON" scripts/run_offline.py \
-#   --images "$BLAST3R_ETH3D_GT"/*/ \
+#   --images "$BLAST3R_ETH3D_10"/*/ \
 #   --output "$BLAST3R_EVAL_ROOT/vggt_no_refinement_${MAX_IMAGES}_max_imgs" \
 #   --depth_backend vggt \
 #   --ckpt_depth "$BLAST3R_VGGT_CHECKPOINT" \
@@ -89,7 +92,7 @@ MAX_IMAGES=10 # -1 for all images, 10 for testing
 
 # # Reconstruct all scenes using VGGT PCA-15:
 # "$BLAST3R_PYTHON" scripts/run_offline.py \
-#   --images "$BLAST3R_ETH3D_GT"/*/ \
+#   --images "$BLAST3R_ETH3D_10"/*/ \
 #   --output "$BLAST3R_EVAL_ROOT/vggt_pca15_all_${MAX_IMAGES}_max_imgs" \
 #   --depth_backend vggt \
 #   --ckpt_depth "$BLAST3R_VGGT_CHECKPOINT" \
@@ -133,7 +136,7 @@ MAX_IMAGES=10 # -1 for all images, 10 for testing
 # Evaluate blast3r nz1 with MAX_IMAGES=10 (row 7 of Table 22)
 echo "Evaluating blast3r nz1 with MAX_IMAGES=10"
 "$BLAST3R_PYTHON" scripts/eval_offline.py \
-  --gt_dir "$BLAST3R_ETH3D_GT" \
+  --gt_dir "$BLAST3R_ETH3D_10" \
   --preds_dir "$BLAST3R_EVAL_ROOT/blast3r_nz1_${MAX_IMAGES}_max_imgs" \
   --allow_subset
 echo "-----------------------------------------"
@@ -155,7 +158,7 @@ echo "-----------------------------------------"
 # Evaluate VGGT PCA_15 MAX_IMAGES=10
 echo "Evaluating VGGT no-refinement with MAX_IMAGES=10"
 "$BLAST3R_PYTHON" scripts/eval_offline.py \
-  --gt_dir "$BLAST3R_ETH3D_GT" \
+  --gt_dir "$BLAST3R_ETH3D_10" \
   --preds_dir "$BLAST3R_EVAL_ROOT/vggt_no_refinement_${MAX_IMAGES}_max_imgs" \
   --allow_subset
 echo "-----------------------------------------"
@@ -170,7 +173,7 @@ echo "-----------------------------------------"
 # Evaluate VGGT PCA_15 MAX_IMAGES=10
 echo "Evaluating VGGT PCA_15 with MAX_IMAGES=10"
 "$BLAST3R_PYTHON" scripts/eval_offline.py \
-  --gt_dir "$BLAST3R_ETH3D_GT" \
+  --gt_dir "$BLAST3R_ETH3D_10" \
   --preds_dir "$BLAST3R_EVAL_ROOT/vggt_pca15_all_${MAX_IMAGES}_max_imgs" \
   --allow_subset
 echo "-----------------------------------------"
