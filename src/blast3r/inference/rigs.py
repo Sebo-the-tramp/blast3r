@@ -357,6 +357,12 @@ def estimate_relpose(views, tracks, i, j):
 
 
 def combine_depth(multi_depth, Z, mode='log_multidepth'):
+    if isinstance(multi_depth, dict):
+        if mode != 'log_multidepth':
+            raise ValueError('Compact features require log_multidepth mode')
+        from .feature_depth import reconstruct_feature_depth
+        return reconstruct_feature_depth(multi_depth, Z)
+
     if mode == 'linear_multidepth': # linear
         if Z.ndim == 0: # just a global scaling, so and addition for the last map==1 only
             depth = multi_depth[...,0] * Z

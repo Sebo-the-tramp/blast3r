@@ -36,6 +36,9 @@ def base_parser(description):
     parser.add_argument('--ckpt_depth', default=CKPT_DEPTH,
                         help='multi-channel depth model: a local directory, or a Hugging Face '
                              f'repo id to download (default: {CKPT_DEPTH})')
+    parser.add_argument('--depth_backend', choices=['blast3r', 'vggt'], default='blast3r',
+                        help='depth estimator; vggt requires VGGT-Omega installed and '
+                             '--ckpt_depth pointing to its local state-dict file')
 
     parser.add_argument('--size', type=int, default=512, help='long-edge image size for processing')
     parser.add_argument('--force_ar', type=float, default=None, help='force aspect ratio for image cropping')

@@ -13,6 +13,7 @@ from blast3r.utils.device import get_device_str, todevice, to_numpy, isfinite, z
 from blast3r.utils.geometry import xy_grid, bilinear_sampling
 from blast3r.image import detokenize
 from blast3r.retrieval.processor import IncrementalRetriever
+from .feature_depth import sample_feature_depth
 from blast3r.models import CausalTrack3R
 
 
@@ -865,8 +866,16 @@ def gather_data_from_dense_tracks(views, tracks, tracks_std=None):
     pix2d_dep = []
     for i, view in enumerate(views):
         multidepth = view[depth_mode]
-        assert multidepth.ndim == 3, f'not a multi-depth: got {multidepth.ndim} dims'
-        kpts_depth = bilinear_sampling(multidepth, tracks[i][valids[i]])
+        if isinstance(multidepth, dict):
+            # here for vggt things
+            kpts_depth = sample_feature_depth(multidepth, tracks[i][valids[i]])
+            # here what will it return?
+        else:
+            # here for blast3r normal
+            # multidepth.shape = torch.Size([336,512,17])
+            assert multidepth.ndim == 3, f'not a multi-depth: got {multidepth.ndim} dims'
+            kpts_depth = bilinear_sampling(multidepth, tracks[i][valids[i]])
+            # returns Torch.size([2823, 17]) -> the pixels and the inerpolated value at each of the basis lol I mean nice
         pix2d_dep.append(contiguous(kpts_depth))
 
     pix2d_dep = concat(pix2d_dep)

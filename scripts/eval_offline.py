@@ -19,19 +19,37 @@ from blast3r.eval.io import read_scene_predictions
 from blast3r.eval.metrics.relpose import compute_pose_errors
 from blast3r.eval.tables import build_table, show, to_latex, write_csv
 
-REPORT = ['Auc_30', 'Racc_5', 'Tacc_5', 'n_pairs']
+REPORT = [
+    'Auc_1',
+    'Auc_3',
+    'Auc_5',
+    'Auc_30',
+    'Racc_5',
+    'Tacc_5',
+    'n_images',
+    'n_gt_images',
+    'n_pairs',
+]
 
 
-def eval_scene(gt_poses, predictions):
+def eval_scene(gt_poses, predictions, allow_subset=False):
     missing = [name for name in gt_poses if name not in predictions]
-    assert not missing, f'{len(missing)} ground-truth images have no prediction, e.g. {missing[:3]}'
+    if not allow_subset:
+        assert not missing, \
+            f'{len(missing)} ground-truth images have no prediction, e.g. {missing[:3]}'
 
-    gt = torch.stack([torch.as_tensor(gt_poses[n]).float() for n in gt_poses])
-    pred = torch.stack([torch.as_tensor(predictions[n]['cam2w']).float() for n in gt_poses])
-    return compute_pose_errors(gt, pred)
+    names = [name for name in gt_poses if name in predictions]
+    if len(names) < 2:
+        raise ValueError(f'need at least 2 predicted images with ground truth, found {len(names)}')
+
+    gt = torch.stack([torch.as_tensor(gt_poses[n]).float() for n in names])
+    pred = torch.stack([torch.as_tensor(predictions[n]['cam2w']).float() for n in names])
+    out = compute_pose_errors(gt, pred)
+    out.update(n_images=len(names), n_gt_images=len(gt_poses))
+    return out
 
 
-def evaluate(gt_dir, preds_dir):
+def evaluate(gt_dir, preds_dir, allow_subset=False):
     scenes = sorted(p for p in Path(gt_dir).iterdir() if has_scene_gt(p))
     assert scenes, f'no scenes with ground truth found under {gt_dir}'
 
@@ -45,8 +63,10 @@ def evaluate(gt_dir, preds_dir):
                          **{k: 0.0 for k in REPORT if k != 'n_pairs'}})
             continue
 
-        errs = eval_scene(read_scene_gt_poses(scene), read_scene_predictions(pred_path))
-        rows.append({'scene': scene.name, 'status': 'ok', **errs})
+        errs = eval_scene(read_scene_gt_poses(scene), read_scene_predictions(pred_path),
+                          allow_subset=allow_subset)
+        status = 'subset' if errs['n_images'] < errs['n_gt_images'] else 'ok'
+        rows.append({'scene': scene.name, 'status': status, **errs})
 
     return rows, missing
 
@@ -56,12 +76,15 @@ def main():
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--gt_dir', required=True, help='ground-truth root, one directory per scene')
     parser.add_argument('--preds_dir', required=True, help='directory of <scene>.pth predictions')
+    parser.add_argument('--allow_subset', action='store_true',
+                        help='evaluate only predicted images that have ground truth; requires at '
+                             'least two images per scene')
     parser.add_argument('--csv', default=None, help='where to write the per-scene CSV '
                                                     '(default: <preds_dir>/relpose.csv)')
     parser.add_argument('--latex', action='store_true', help='also print a LaTeX table')
     args = parser.parse_args()
 
-    rows, missing = evaluate(args.gt_dir, args.preds_dir)
+    rows, missing = evaluate(args.gt_dir, args.preds_dir, allow_subset=args.allow_subset)
     df = build_table(rows)
 
     if missing:

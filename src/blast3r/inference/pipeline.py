@@ -22,6 +22,8 @@ from .tracks import OnlineMatcher, StoredFlows, compute_tracks, find_keypoints, 
 
 @torch.inference_mode()
 def run_inference(views, depther, matcher,
+                  depth_backend='blast3r',
+                  vggt_refine_head=False,
                   mono_cam=False,
                   kpt_spacing=8,
                   remove_far_kpts=True,
@@ -32,6 +34,14 @@ def run_inference(views, depther, matcher,
                   denoise_depth=False,
                   on_init=None,
                   **BA_args):
+    if vggt_refine_head:
+        if depth_backend != 'vggt':
+            raise ValueError('--vggt_refine_head requires --depth_backend vggt')
+        tangent = BA_args.get('tangent_reg', 0)
+        if any(t != 0 for t in (tangent if isinstance(tangent, (list, tuple)) else [tangent])):
+            raise ValueError('Shared VGGT head refinement currently supports sparse BA residuals only')
+        BA_args['n_zcfs'] = [16]  # 17 stored channels: fixed base + bias + 15 PCA scores
+        print('>> VGGT PCA-15: optimizing 15 feature weights + bias per image (17 stored channels); bases stay in CPU RAM')
     assert isinstance(views, dict)
     assert 'img' in views and 'true_shape' in views
     n_imgs = len(views['img'])
@@ -44,7 +54,8 @@ def run_inference(views, depther, matcher,
         toggle_memory_efficient_attention(True)
 
     with timer.time('depth_pred'):
-        conf, ptmap, multidepth, depth_mode = compute_pts3d_multidepths(depther, views)
+        conf, ptmap, multidepth, depth_mode = compute_pts3d_multidepths(
+            depther, views, backend=depth_backend, refine_head=vggt_refine_head)
 
     with timer.time('flow_pred'):
         tracks = compute_tracks(matcher, views,
@@ -62,6 +73,9 @@ def run_inference(views, depther, matcher,
     with timer.time('ba_init'):
         print('>> Gathering tracks data ...')
         track_data = gather_data_from_dense_tracks(views, tracks)
+        if vggt_refine_head:
+            # Keep NumPy track IDs for pose initialization; move sampled depths only.
+            track_data.pix2d_dep = track_data.pix2d_dep.to(device)
 
         print('>> Initializing poses ...')
         rigs = init_poses_minspan_tree(views, track_data, depth_mode, mono_cam=mono_cam)
@@ -79,7 +93,7 @@ def run_inference(views, depther, matcher,
                 ptmap.append(depthmap_to_pts3d(view['pts3d'][:, :, 2], rigs.get_K(i)))
 
         new_rigs, new_pts3d = bundle_adjustment(rigs, track_data, pts3d,
-                                                dense_depth=multidepth,
+                                                dense_depth=None if vggt_refine_head else multidepth,
                                                 dense_conf=conf,
                                                 dense_pts3d_ref=ptmap,
                                                 device='cuda',
@@ -93,6 +107,7 @@ def run_inference(views, depther, matcher,
 
 @torch.inference_mode()
 def run_online_inference(scene, sequence, depther, matcher,
+                         depth_backend='blast3r',
                          mono_cam=True,
                          kpt_spacing=8,
                          remove_far_kpts=True,
@@ -142,7 +157,7 @@ def run_online_inference(scene, sequence, depther, matcher,
 
             with timer.time('depth_pred'):
                 conf, ptmap, multidepth, depth_mode = to_cuda(
-                    compute_pts3d_multidepths(depther, view))
+                    compute_pts3d_multidepths(depther, view, backend=depth_backend))
                 # The dense maps of every frame stay on the GPU for the whole run,
                 # so keep only the channels bundle adjustment will read.
                 if n_depth_channels is None:

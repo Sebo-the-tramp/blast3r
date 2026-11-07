@@ -23,13 +23,34 @@ class PcaHeadTests(unittest.TestCase):
         torch.testing.assert_close(reconstruct_feature_depth(basis, weights), 2 * base[..., 0].exp())
         scores = basis['features'].flatten(1).T
         torch.testing.assert_close(scores.mean(0), torch.zeros(15), atol=1e-6, rtol=0)
-        cov = scores.T @ scores
-        torch.testing.assert_close(cov, cov.diag().diag(), atol=1e-4, rtol=1e-5)
+        cov = scores.T @ scores / len(scores)
+        torch.testing.assert_close(cov, torch.eye(15), atol=1e-5, rtol=1e-5)
         torch.testing.assert_close(basis, vggt_pca_head_basis(base, features))
 
     def test_constant_features(self):
         basis = vggt_pca_head_basis(torch.ones(8, 8, 2), torch.ones(256, 2, 2))
         self.assertEqual(basis['features'].count_nonzero(), 0)
+
+    def test_low_variance_directions_are_zero_padded(self):
+        features = torch.zeros(256, 2, 2)
+        features[0] = torch.tensor([[-1., -1.], [1., 1.]])
+        features[1] = torch.tensor([[-1., 1.], [-1., 1.]]) * 1e-4
+        basis = vggt_pca_head_basis(torch.ones(8, 8, 2), features)
+        scores = basis['features'].flatten(1)
+        self.assertTrue(torch.isfinite(scores).all())
+        torch.testing.assert_close(scores[0].square().mean(), torch.tensor(1.))
+        self.assertEqual(scores[1:].count_nonzero(), 0)
+        # A lower floor admits the second orthogonal direction without changing layout.
+        retained = vggt_pca_head_basis(torch.ones(8, 8, 2), features, eigenvalue_floor=1e-10)
+        torch.testing.assert_close(retained['features'][:2].flatten(1).square().mean(1), torch.ones(2))
+
+    def test_whitening_is_invariant_to_feature_scale_and_offset(self):
+        torch.manual_seed(4)
+        features = torch.randn(256, 4, 5)
+        base = torch.ones(16, 20, 2)
+        a = vggt_pca_head_basis(base, features)['features']
+        b = vggt_pca_head_basis(base, features * 3 + 5)['features']
+        torch.testing.assert_close(a, b, atol=2e-5, rtol=2e-5)
 
     def test_full_linear_solve_uses_supported_kernel_shapes(self):
         # Emulate custom kernels on CPU, rejecting shapes absent from CUDA source.

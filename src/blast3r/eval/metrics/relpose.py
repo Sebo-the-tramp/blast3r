@@ -63,7 +63,12 @@ def compute_pose_errors(gt_c2ws, pred_c2ws):
     rError = rotation_angle(gt_rel[:, :3, :3], pred_rel[:, :3, :3]).numpy()
     tError = translation_angle(gt_rel[:, :3, 3], pred_rel[:, :3, 3]).numpy()
 
-    out = {'Auc_30': calculate_auc_np(rError, tError, max_threshold=30) * 100}
+    # out = {'Auc_30': calculate_auc_np(rError, tError, max_threshold=30) * 100}
+    out = {
+        f'Auc_{thr}': calculate_auc_np(rError, tError, max_threshold=thr) * 100
+        for thr in (1, 3, 5, 30)
+    }
+
     for thr in THRESHOLDS:
         out[f'Racc_{thr}'] = np.mean(rError < thr) * 100
         out[f'Tacc_{thr}'] = np.mean(tError < thr) * 100

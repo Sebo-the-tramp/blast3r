@@ -17,7 +17,7 @@ def init_view(view, conf, pts3d_in_cam, multidepth, depth_mode, optim_K, optim_P
         'img': compress('img', RGB_dtk(view)),
         'pts3d': pts3d_in_cam.float(),
         'conf': conf.float(),
-        depth_mode: multidepth.float(),
+        depth_mode: multidepth if isinstance(multidepth, dict) else multidepth.float(),
         'not_too_far': 1,
     }
 

@@ -1,6 +1,7 @@
 # Copyright (C) 2026-present Naver Corporation. All rights reserved.
 
 import copy
+import hashlib
 import json
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -60,6 +61,28 @@ def load_dataset(images, online=False, name=None, **load_kw):
         yield load_scene(Path(path), online=online, name=name, **load_kw)
 
 
+def sample_scene_items(items, scene, max_frames=None, seed=0):
+    """Select a reproducible random subset, independently for each scene.
+
+    The selected items keep their original order.  Including the scene name in
+    the seed prevents every scene in a multi-scene run from drawing the same
+    positions.
+    """
+    items = list(items)
+    if max_frames in (None, -1):
+        return items
+    if max_frames < 1:
+        raise ValueError('--max_frames must be -1 (unlimited) or a positive integer')
+    if len(items) <= max_frames:
+        return items
+
+    digest = hashlib.sha256(str(scene).encode('utf-8')).digest()
+    scene_seed = (int(seed) + int.from_bytes(digest[:8], 'little')) % (2**63 - 1)
+    generator = torch.Generator().manual_seed(scene_seed)
+    indices = torch.randperm(len(items), generator=generator)[:max_frames].sort().values
+    return [items[i] for i in indices.tolist()]
+
+
 class LazyFrames:
     """An image sequence loaded one frame at a time, as the online pipeline
     consumes it, so a long sequence does not sit in host memory in full.
@@ -92,12 +115,16 @@ class LazyFrames:
         return load_image(self.instances[idx], **self.load_kw)
 
 
-def load_scene(path, online=False, name=None, **load_kw):
+def load_scene(path, online=False, name=None, max_frames=None, seed=0, **load_kw):
     if path.is_dir():
         images = sorted(p for p in path.iterdir()
                         if p.name.lower().endswith(IMAGE_SUFFIXES))
         assert images, f'no images found in directory {path}'
         label = name or path.name
+        sampled = sample_scene_items(images, label, max_frames=max_frames, seed=seed)
+        if len(sampled) != len(images):
+            print(f'>> Randomly selected {len(sampled)} of {len(images)} frames for {label!r}')
+        images = sampled
 
         if online:
             return (path.parent.name, label, LazyFrames(images, **load_kw))
@@ -110,6 +137,10 @@ def load_scene(path, online=False, name=None, **load_kw):
     if is_video_file(path):
         views = load_video(path, **load_kw)
         label = name or path.stem
+        sampled = sample_scene_items(views, label, max_frames=max_frames, seed=seed)
+        if len(sampled) != len(views):
+            print(f'>> Randomly selected {len(sampled)} of {len(views)} frames for {label!r}')
+        views = sampled
         if online:
             return (path.parent.name, label, views)
 
@@ -226,8 +257,40 @@ class DelayedLoadingModel:
         return getattr(self.__model, key)
 
 
-def load_depth_model(path, device='cuda', dtype=None):
-    return DelayedLoadingModel(lambda: load_model(path, device=device, dtype=dtype)[0], force_dtype=dtype)
+def load_depth_model(path, device='cuda', dtype=None, backend='blast3r'):
+    if backend == 'blast3r':
+        return DelayedLoadingModel(lambda: load_model(path, device=device, dtype=dtype)[0], force_dtype=dtype)
+    if backend == 'vggt':
+        if path == CKPT_DEPTH:
+            raise ValueError(
+                '--depth_backend vggt requires --ckpt_depth /path/to/omega_checkpoint.pt; '
+                'the default checkpoint is for BLASt3R, not VGGT-Omega'
+            )
+        if not Path(path).is_file():
+            raise FileNotFoundError(f'VGGT-Omega checkpoint must be a local file: {path}')
+        checkpoint = Path(path).resolve()
+        stat = checkpoint.stat()
+        model = DelayedLoadingModel(lambda: load_vggt_depth_model(checkpoint, device=device))
+        model.cache_identity = f'{checkpoint}:{stat.st_size}:{stat.st_mtime_ns}'
+        model.inference_device = torch.device(device)
+        return model
+    raise ValueError(f'Unknown depth backend: {backend}')
+
+
+def load_vggt_depth_model(path, device='cuda'):
+    """Load a local VGGT-Omega state dict; Omega manages its own mixed precision."""
+    from vggt_omega.models import VGGTOmega
+
+    device = torch.device(device)
+    state = torch.load(path, map_location='cpu', weights_only=True)
+    model = VGGTOmega(
+        enable_alignment=any(key.startswith('text_alignment_head.') for key in state),
+        autocast=device.type == 'cuda',
+    )
+    model.load_state_dict(state, strict=True)
+    # Alignment weights are loaded strictly, but the head is unused for depth.
+    model.text_alignment_head = None
+    return model.to(device).eval()
 
 
 def load_match_model(path, device='cuda', dtype=None):

@@ -493,6 +493,7 @@ def bundle_adjustment(rigs_data, track_data, pts3d=None, z_coefs=None,
                 reproj_after = reproj_score(status.new_residuals)
                 avg_focal = float((update['K'][:,0,0].mean() + update['K'][:,1,1].mean())/2)
                 print(f"Loss at {iter=}: {float(status.init_loss):.3f} --> {float(status.new_loss):.3f}, reproj_score: {reproj_before:.3f} --> {reproj_after=:.3f}, {avg_focal=:.2f}")
+                print("Z-coefs:", update['z_coefs'].detach().cpu().numpy())
             if status.new_loss >= status.init_loss:
                 break
             variables.update(update)

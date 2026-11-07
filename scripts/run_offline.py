@@ -20,15 +20,20 @@ from blast3r.inference.timing import timer
 
 def arg_parser():
     parser = base_parser('BLASt3R offline reconstruction')
+    parser.add_argument('--max_frames', type=int, default=None,
+                        help='randomly select at most this many frames per scene; -1 or omission '
+                             'uses all frames; the draw is reproducible from the scene name and --seed')
     parser.add_argument('--vggt_refine_head', action='store_true',
                         help='optimize 15 PCA feature weights plus bias per image using LM; requires VGGT')
     return parser
 
 
 def run(images, ckpt_depth, ckpt_match, size, force_ar, output, export_mode, name=None,
-        skip_existing=False, skip_failures=False, seed=0, device='cuda', dtype=torch.float32,
+        skip_existing=False, skip_failures=False, max_frames=None, seed=0,
+        device='cuda', dtype=torch.float32,
         **options):
-    dataset = load_dataset(images, size=size, force_ar=force_ar, name=name)
+    dataset = load_dataset(images, size=size, force_ar=force_ar, name=name,
+                           max_frames=max_frames, seed=seed)
     depther = load_depth_model(ckpt_depth, device=device, dtype=dtype,
                                backend=options.get('depth_backend', 'blast3r'))
     matcher = load_match_model(ckpt_match, device=device, dtype=dtype)

@@ -195,7 +195,7 @@ def bilinear_sampling(depth, pix2d, mode='bilinear', padding_mode='border'):
                         align_corners=False) # align with corners of the pixels
     res = res.permute(0,2,3,1).view(*batch_dims,*pix_shape,depth.shape[-1])
     if to_numpy: res = res.numpy()
-    return res
+    return res # returns Torch.size([2823, 17]) -> the pixels and the inerpolated value at each of the basis lol I mean nice.
 
 
 def inv( mat ):
