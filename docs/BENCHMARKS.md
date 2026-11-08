@@ -286,6 +286,45 @@ are downloaded under `BLAST3R_CACHE_ROOT/huggingface` unless `HF_HOME` is set.
 | Joint VGGT-Omega | `vggt_no_ba` | `vggt_ba_none` | `vggt_ba_blast3r` | `vggt_ba_vggt` |
 | BLASt3R tree (depth matched to BA) | `blast3r_no_ba` | `blast3r_ba_none` | `blast3r_ba_blast3r` | `blast3r_ba_vggt` |
 
+### Single-image VGGT ablation
+
+Run VGGT independently on each of the same ten frozen images, reusing the
+existing `vggt_monodepth` caches and the same PCA-15 construction:
+
+```bash
+# From the SC3R root: all four BLASt3R-matcher rows, all 13 scenes.
+sbatch jobs/job_blast3r_pose_matrix_mono.sh
+
+# Or only the row whose VGGT depths/features change.
+sbatch jobs/job_blast3r_pose_matrix_mono.sh --rows blast3r_ba_vggt
+
+# Local smoke run from the BLASt3R checkout (choose a separate output).
+bash run_pose_matrix_mono.sh --scenes courtyard --rows blast3r_ba_vggt \
+  --max_iters 2 --output outputs/evaluation/eth3d/pose_matrix_mono_smoke
+```
+
+The new launcher selects `--vggt_inference mono` and defaults to
+`${BLAST3R_MATRIX_OUTPUT}_mono`. The original launcher still defaults to joint
+inference. Monocular mode has only the four `blast3r_*` rows: independent
+single-image predictions do not supply relative camera poses. Requesting a
+`vggt_*` row in this mode fails before loading models. Its tables include only
+the four applicable rows and identify the single-image inference setting.
+
+The default depth-matched initialization policy also applies here: the VGGT
+feature-depth BA row uses monocular VGGT pointmaps for tree initialization and
+monocular depths/features for BA. Thus comparison against the corresponding
+joint row measures the effect on both initialization and BA. To hold initial
+K/poses/points fixed, run **both modes** with `--blast3r_init_depth blast3r`
+and separate output directories. Use the same `--auc_mode` in both runs.
+
+Tracks, native depths and native-depth initial states share one inference cache
+between modes when the code, inputs, checkpoints and other settings match.
+VGGT-depth initial states have separate cache files; the mode is recorded in
+the output protocol and successful row records. Existing joint results remain
+unchanged. Source changes invalidate the old inference-cache identity, so the
+first run with this implementation rebuilds tracks/native predictions, while
+the existing per-image VGGT feature caches can still be reused.
+
 Protocol:
 
 - VGGT-Omega runs **jointly on all ten images**. Its predicted poses initialize

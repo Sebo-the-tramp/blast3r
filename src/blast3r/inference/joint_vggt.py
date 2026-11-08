@@ -1,4 +1,4 @@
-"""Joint VGGT-Omega predictions; deliberately separate from monocular caches."""
+"""VGGT-Omega prediction adapters with separate joint and monocular caches."""
 import hashlib
 from pathlib import Path
 
@@ -6,8 +6,20 @@ import torch
 
 from blast3r.image import detokenize
 from blast3r.utils.geometry import depthmap_to_pts3d
-from .multidepth import vggt_pca_head_basis
+from .multidepth import vggt_pca_head_basis, compute_pts3d_multidepths_vggt
 from .scene_cache import atomic_torch_save
+
+
+@torch.inference_mode()
+def compute_mono_vggt(model, views, cache_root):
+    """Reuse per-image inference/PCA caches; no cross-image poses are predicted."""
+    from blast3r.utils.device import todevice
+    conf, points, pca, _ = compute_pts3d_multidepths_vggt(
+        model, views, refine_head=True, cache_dir=Path(cache_root) / 'vggt_monodepth')
+    bases = [torch.stack((basis['base_log_depth'], torch.ones_like(basis['base_log_depth'])), -1)
+             for basis in pca]
+    return todevice({'inference': 'mono', 'conf': conf, 'pts3d': points,
+                     'multidepth': bases, 'pca_basis': pca}, 'cpu')
 
 
 def joint_input_identity(views, checkpoint_identity):

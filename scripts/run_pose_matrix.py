@@ -25,6 +25,8 @@ def parser():
     p.add_argument('--ckpt_match', default='naver/blast3r-matcher')
     p.add_argument('--ckpt_depth', default='naver/blast3r-depth')
     p.add_argument('--ckpt_vggt', required=True)
+    p.add_argument('--vggt_inference', choices=['joint', 'mono'], default='joint',
+                   help='joint ten-image inference, or independent images (BLASt3R-pose rows only)')
     p.add_argument('--scenes', nargs='+')
     p.add_argument('--rows', nargs='+', choices=[e.name for e in EXPERIMENTS])
     p.add_argument('--blast3r_init_depth', choices=['residual', 'blast3r', 'vggt'], default='residual',
@@ -41,6 +43,23 @@ def parser():
     for option in ('independent_intrinsics', 'optim_memory', 'report_only', 'dry_run', 'continue_on_error', 'rerun'):
         p.add_argument('--' + option, action='store_true')
     return p
+
+
+def available_experiments(vggt_inference):
+    return tuple(e for e in EXPERIMENTS if vggt_inference == 'joint' or e.pose_source == 'blast3r')
+
+
+def select_experiments(vggt_inference, rows=None):
+    available = available_experiments(vggt_inference)
+    if rows is not None and set(rows) - {e.name for e in available}:
+        raise ValueError('Single-image VGGT cannot supply relative poses; select only blast3r_* rows')
+    return [e for e in available if rows is None or e.name in rows]
+
+
+def initial_cache_path(directory, key, vggt_inference):
+    # Native initialization is identical in both modes; VGGT-depth initialization is not.
+    suffix = '_mono' if vggt_inference == 'mono' and key == 'blast3r_vggt' else ''
+    return Path(directory) / f'initial_{key}{suffix}.pth'
 
 
 def write_json(path, value):
@@ -126,10 +145,10 @@ def scene_identity(views):
     return digest.hexdigest()
 
 
-def prepare_scene(views, directory, models, mono_cam, seed, optim_memory, cache_root):
+def prepare_scene(views, directory, models, mono_cam, seed, optim_memory, cache_root, vggt_inference='joint'):
     from blast3r.inference.loading import get_ntokens
     from blast3r.inference.multidepth import compute_pts3d_multidepths_blast3r
-    from blast3r.inference.joint_vggt import compute_joint_vggt, joint_input_identity
+    from blast3r.inference.joint_vggt import compute_joint_vggt, compute_mono_vggt, joint_input_identity
     from blast3r.inference.experiment_matrix import initialize_source
     from blast3r.utils.device import todevice
     directory.mkdir(parents=True, exist_ok=True)
@@ -137,8 +156,11 @@ def prepare_scene(views, directory, models, mono_cam, seed, optim_memory, cache_
         conf, xyz, basis, mode = compute_pts3d_multidepths_blast3r(models['native'], views)
         return todevice({'conf': conf, 'pts3d': xyz, 'multidepth': basis}, 'cpu')
     native = cached(directory / 'blast3r_depth.pth', native_prediction)
-    joint_key = joint_input_identity(views, models['vggt'].cache_identity)
-    joint = compute_joint_vggt(models['vggt'], views, Path(cache_root) / 'vggt_joint' / f'{joint_key}.pth')
+    if vggt_inference == 'mono':
+        vggt = compute_mono_vggt(models['vggt'], views, cache_root)
+    else:
+        joint_key = joint_input_identity(views, models['vggt'].cache_identity)
+        vggt = compute_joint_vggt(models['vggt'], views, Path(cache_root) / 'vggt_joint' / f'{joint_key}.pth')
     def match():
         from blast3r.inference.tracks import OnlineMatcher, compute_tracks
         torch.manual_seed(seed)
@@ -154,16 +176,17 @@ def prepare_scene(views, directory, models, mono_cam, seed, optim_memory, cache_
                {'shared_track_counts': counts.int().tolist(), 'n_tracks': len(tracks),
                 'description': 'Shared BLAST3R tracks per image pair; matching support, not GT overlap'})
     initial = {}
-    for key, source, prediction in (('vggt', 'vggt', joint),
-                                     ('blast3r_blast3r', 'blast3r', native),
-                                     ('blast3r_vggt', 'blast3r', joint)):
+    sources = [('blast3r_blast3r', 'blast3r', native), ('blast3r_vggt', 'blast3r', vggt)]
+    if vggt_inference == 'joint':
+        sources.insert(0, ('vggt', 'vggt', vggt))
+    for key, source, prediction in sources:
         try:
-            initial[key] = cached(directory / f'initial_{key}.pth',
+            initial[key] = cached(initial_cache_path(directory, key, vggt_inference),
                                      lambda: initialize_source(source, prediction, tracks, mono_cam))
         except Exception as error:
             # A disconnected BLASt3R tree must not invalidate VGGT pose baselines.
             initial[key] = {'error': f'{type(error).__name__}: {error}'}
-    return native, joint, tracks, initial
+    return native, vggt, tracks, initial
 
 
 def evaluate(scene_dir, predictions, auc_mode):
@@ -189,7 +212,7 @@ def write_report(output, scenes, protocol):
     config_path = output / 'config.json'
     config = json.loads(config_path.read_text()) if config_path.exists() else {}
     details, means = [], []
-    for experiment in EXPERIMENTS:
+    for experiment in available_experiments(config.get('vggt_inference', 'joint')):
         rows = []
         key = initialization_key(experiment, config.get('blast3r_init_depth', 'residual'),
                                  config.get('baseline_init_depth', 'blast3r'))
@@ -224,7 +247,8 @@ def write_report(output, scenes, protocol):
     write_json(output / 'summary.json', {'protocol': protocol, 'scenes': scenes, 'rows': means})
     tex = [r'\begin{table*}[t]', r'\centering',
            r'\caption{Mean relative-pose AUC on ETH3D with 10 frozen images per scene (' + str(len(scenes)) +
-           r' scenes). Joint VGGT-$\Omega$ uses a rank-15 feature basis. All rows share BLASt3R tracks. '
+           r' scenes). ' + ('Single-image' if config.get('vggt_inference') == 'mono' else 'Joint') +
+           r' VGGT-$\Omega$ uses a rank-15 feature basis. All rows share BLASt3R tracks. '
            r'BLASt3R initialization follows the BA depth basis, using native depth for the no-depth baselines. '
            r'Pending entries are blank; failed scenes score zero.}',
            r'\label{tab:mean-auc}', r'\begin{tabular}{@{}l ccc ccc@{}}', r'\toprule',
@@ -233,7 +257,7 @@ def write_report(output, scenes, protocol):
            r'Pose source & BA & BLASt3R depth & VGGT feat. depth & @1$^\circ$ & @5$^\circ$ & @30$^\circ$ \\', r'\midrule']
     mark = lambda yes: r'\ensuremath{\checkmark}' if yes else r'\ensuremath{\times}'
     for i, row in enumerate(means):
-        if i == 4:
+        if i > 0 and row['pose_source'] != means[i - 1]['pose_source']:
             tex.append(r'\midrule')
         cells = [r'VGGT-$\Omega$' if row['pose_source'] == 'vggt' else 'BLASt3R-matcher', mark(row['ba']),
                  mark(row['depth_residual'] == 'blast3r') if row['ba'] else '--',
@@ -260,9 +284,11 @@ def main():
     scenes = args.scenes or ETH3D_SCENES
     if not scenes or len(set(scenes)) != len(scenes) or any(Path(s).name != s for s in scenes):
         raise ValueError('Scene names must be unique directory names')
-    plan = {'scenes': scenes, 'images_per_scene': 10, 'seed': args.seed, 'vggt_inference': 'joint',
-            'shared_tracks': 'blast3r-all-pairs', 'shared_vggt_initial_state': True, 'blast3r_initialization_matches_ba_depth': args.blast3r_init_depth == 'residual',
-            'rows': [dict(name=e.name, pose_source=e.pose_source, ba=e.ba, depth_residual=e.depth_residual) for e in EXPERIMENTS],
+    selected = select_experiments(args.vggt_inference, args.rows)
+    plan = {'scenes': scenes, 'images_per_scene': 10, 'seed': args.seed, 'vggt_inference': args.vggt_inference,
+            'shared_tracks': 'blast3r-all-pairs', 'shared_vggt_initial_state': args.vggt_inference == 'joint', 'blast3r_initialization_matches_ba_depth': args.blast3r_init_depth == 'residual',
+            'rows': [dict(name=e.name, pose_source=e.pose_source, ba=e.ba, depth_residual=e.depth_residual)
+                     for e in available_experiments(args.vggt_inference)],
             'max_iters': args.max_iters, 'weight_z': args.weight_z, 'auc_mode': args.auc_mode,
             'mono_cam': not args.independent_intrinsics, 'blast3r_init_depth': args.blast3r_init_depth, 'baseline_init_depth': args.baseline_init_depth}
     if args.dry_run:
@@ -295,7 +321,6 @@ def main():
     models = {'native': load_depth_model(str(native_path), device='cuda', dtype=torch.float32),
               'vggt': load_depth_model(args.ckpt_vggt, device='cuda', backend='vggt'),
               'matcher': load_match_model(str(matcher_path), device='cuda', dtype=torch.float32)}
-    selected = [e for e in EXPERIMENTS if args.rows is None or e.name in args.rows]
     for scene in scenes:
         directory = Path(args.images_root) / scene
         if all((output / e.name / f'{scene}.json').is_file() for e in selected) and not args.rerun:
@@ -316,7 +341,8 @@ def main():
                                     'runtime': config['runtime']})
             cache = Path(args.cache_root) / 'pose_matrix' / scene / infer_id
             print(f'>> Preparing shared inputs for {scene}', flush=True)
-            native, joint, tracks, initial = prepare_scene(views, cache, models, not args.independent_intrinsics, args.seed, args.optim_memory, args.cache_root)
+            native, vggt, tracks, initial = prepare_scene(views, cache, models, not args.independent_intrinsics,
+                                                       args.seed, args.optim_memory, args.cache_root, args.vggt_inference)
         except Exception as error:
             preparation_error = error
             traceback.print_exc()
@@ -331,16 +357,18 @@ def main():
                     raise preparation_error
                 print(f'>> {scene}: {experiment.name}', flush=True)
                 state_key = initialization_key(experiment, args.blast3r_init_depth, args.baseline_init_depth)
-                rigs, points = run_experiment(experiment, initial[state_key], tracks, native, joint,
+                rigs, points = run_experiment(experiment, initial[state_key], tracks, native, vggt,
                                               max_iters=args.max_iters, weight_z=args.weight_z,
                                               huber_delta=args.huber_delta, min_loss_delta=args.min_loss_delta)
                 predictions = pose_predictions(rigs, names)
                 metrics = evaluate(directory, predictions, args.auc_mode)
-                state_path = str(cache / f'initial_{state_key}.pth')
+                state_path = str(initial_cache_path(cache, state_key, args.vggt_inference))
                 predictions.update(experiment=experiment.name, protocol=protocol, initial_state_cache=state_path,
+                                   vggt_inference=args.vggt_inference,
                                    initial_depth_source='vggt' if state_key == 'vggt' else state_key.removeprefix('blast3r_'))
                 torch.save(predictions, record_path.with_suffix('.pth'))
                 record = dict(status='ok', protocol=protocol, experiment=experiment.name, scene=scene,
+                              vggt_inference=args.vggt_inference,
                               metrics=metrics, initial_state_cache=state_path,
                               initial_depth_source=predictions['initial_depth_source'], n_tracks=len(tracks),
                               n_images=len(names), seconds=time.perf_counter() - started)
@@ -356,7 +384,7 @@ def main():
             write_json(record_path, record)
             write_report(output, scenes, protocol)
         if preparation_error is None:
-            del views, native, joint, tracks, initial
+            del views, native, vggt, tracks, initial
         torch.cuda.empty_cache()
     print(f'Wrote per_scene.csv, mean_auc.csv and mean_auc.tex to {output}', flush=True)
 
