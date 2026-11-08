@@ -413,7 +413,7 @@ class OnlineMatcher (BaseOnlineMatcher):
         self.pin_memory = pin_memory
         self._staging = {}  # pinned buffers the retrieved frames are gathered into
 
-    def init(self):
+    def init(self, allow_no_retrieval=False):
         if isinstance(self.model, types.LambdaType):
             self.model = self.model() # dynamic load
         matcher, retriever = self.model
@@ -421,8 +421,12 @@ class OnlineMatcher (BaseOnlineMatcher):
         assert isinstance(self.matcher, CausalTrack3R)
         assert self.matcher.patch_size == self.P
 
-        assert retriever is not None, 'online inference needs a retrieval model: the checkpoint must ship retrieval weights, and asmk must be installed'
-        self.retriever = IncrementalRetriever(retriever.model, retriever.asmk)
+        if retriever is None:
+            if not allow_no_retrieval:
+                raise ValueError('Image retrieval requires retrieval weights and asmk; use retrieval_mode=none for all pairs')
+            self.retriever = None
+        else:
+            self.retriever = IncrementalRetriever(retriever.model, retriever.asmk)
 
         self.n_tokens = self.hw + self.matcher.n_cls
 
@@ -465,7 +469,7 @@ class OnlineMatcher (BaseOnlineMatcher):
     def __call__(self, batched_view, retrieval_mode, num_retrieved_images):
         n = self.n_imgs_so_far
         self.n_imgs_so_far += 1
-        if n == 0: self.init()
+        if n == 0: self.init(allow_no_retrieval=(retrieval_mode == 'none'))
 
         if batched_view['img'].ndim != 6: # not batched yet
             batched_view = self.batch_view(batched_view)
@@ -479,7 +483,10 @@ class OnlineMatcher (BaseOnlineMatcher):
             self.enc_tokens[n] = enc_n
 
             # compute overall similarity with previous images
-            self.sim_matrix[n,:n] = self.retriever(enc_n, add_to_db=True)
+            if self.retriever is not None:
+                self.sim_matrix[n,:n] = self.retriever(enc_n, add_to_db=True)
+            elif retrieval_mode != 'none':
+                raise ValueError('This matcher was initialized without an image retriever')
 
             # select past frames
             db_nums = retrieve_imgs(self.sim_matrix, n, retrieval_mode, num_retrieved_images)

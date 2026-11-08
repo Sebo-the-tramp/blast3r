@@ -121,7 +121,9 @@ class GaussNewtonSolver:
         assert w_pts.shape in ((self.n_kpts, 1), (self.n_kpts, 3))
 
         W = w_pts.expand(-1,3)
-        W = W.clamp(min=clamp_w[0], max=clamp_w[1])
+        # Exact zeros disable a residual; clamping them up would reintroduce depth
+        # constraints into the no-depth BA ablation.
+        W = torch.where(W == 0, torch.zeros_like(W), W.clamp(min=clamp_w[0], max=clamp_w[1]))
         W = W.ravel()
 
         # compute the jacobian x weighted residuals

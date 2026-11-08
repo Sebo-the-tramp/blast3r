@@ -33,9 +33,19 @@ fi
 export BLAST3R_CACHE_ROOT
 : "${BLAST3R_OUTPUT_ROOT:=$BLAST3R_ROOT/out}"
 : "${BLAST3R_EVAL_ROOT:=$BLAST3R_ROOT/outputs/evaluation/eth3d}"
+: "${BLAST3R_MATCH_CHECKPOINT:=naver/blast3r-matcher}"
+: "${BLAST3R_DEPTH_CHECKPOINT:=naver/blast3r-depth}"
+: "${BLAST3R_MATRIX_OUTPUT:=$BLAST3R_EVAL_ROOT/pose_matrix}"
 : "${BLAST3R_ETH3D_GT:=$BLAST3R_EVAL_ROOT/gt}"
 if [[ -x "$BLAST3R_ROOT/.venv/bin/python" ]]; then
     : "${BLAST3R_PYTHON:=$BLAST3R_ROOT/.venv/bin/python}"
 else
     : "${BLAST3R_PYTHON:=python}"
 fi
+
+# Run directly from this source checkout, including the existing local Omega tree.
+export PYTHONPATH="$BLAST3R_ROOT/src${PYTHONPATH:+:$PYTHONPATH}"
+if [[ -d "$BLAST3R_ROOT/../epo/third_party/vggt-omega/vggt_omega" ]]; then
+    export PYTHONPATH="$BLAST3R_ROOT/../epo/third_party/vggt-omega:$PYTHONPATH"
+fi
+export HF_HOME="${HF_HOME:-$BLAST3R_CACHE_ROOT/huggingface}"

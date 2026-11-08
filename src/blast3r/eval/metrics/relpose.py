@@ -45,7 +45,17 @@ def calculate_auc_np(r_error, t_error, max_threshold=30):
     return np.mean(np.cumsum(normalized))
 
 
-def compute_pose_errors(gt_c2ws, pred_c2ws):
+def calculate_auc_exact_np(r_error, t_error, max_threshold=30):
+    """Exact normalized integral of the empirical recall curve on [0, threshold]."""
+    if max_threshold <= 0:
+        raise ValueError('AUC threshold must be positive')
+    errors = np.maximum(r_error, t_error)
+    if len(errors) == 0:
+        return None
+    return np.clip(1 - errors / max_threshold, 0, 1).mean()
+
+
+def compute_pose_errors(gt_c2ws, pred_c2ws, auc_mode='histogram'):
     """Relative-pose accuracy over all image pairs of one scene.
 
     Errors are computed on relative poses, so the two trajectories need not
@@ -63,9 +73,11 @@ def compute_pose_errors(gt_c2ws, pred_c2ws):
     rError = rotation_angle(gt_rel[:, :3, :3], pred_rel[:, :3, :3]).numpy()
     tError = translation_angle(gt_rel[:, :3, 3], pred_rel[:, :3, 3]).numpy()
 
-    # out = {'Auc_30': calculate_auc_np(rError, tError, max_threshold=30) * 100}
+    if auc_mode not in ('exact', 'histogram'):
+        raise ValueError(f'Unknown AUC mode: {auc_mode}')
+    auc = calculate_auc_exact_np if auc_mode == 'exact' else calculate_auc_np
     out = {
-        f'Auc_{thr}': calculate_auc_np(rError, tError, max_threshold=thr) * 100
+        f'Auc_{thr}': auc(rError, tError, max_threshold=thr) * 100
         for thr in (1, 3, 5, 30)
     }
 

@@ -231,3 +231,137 @@ BLAST3R_PYTHON=/home/x_luddi/.conda/envs/epo/bin/python \
 This cache-only build does not require compiling BLAST3R's CUDA extensions or
 installing its matcher/retrieval dependencies. Those remain necessary for full
 reconstruction experiments.
+
+## Eight-row pose initialization and depth BA experiment
+
+`run_pose_matrix.sh` implements the eight rows of the pose-source table on the
+frozen ten-image scenes. From the parent SC3R root:
+
+```bash
+bash third_party/blast3r/run_pose_matrix.sh --dry_run
+# On an allocated GPU node:
+bash third_party/blast3r/run_pose_matrix.sh
+# Small integration run; keep these results in a separate output directory:
+bash third_party/blast3r/run_pose_matrix.sh --scenes courtyard --max_iters 2 \
+  --output outputs/evaluation/eth3d/pose_matrix_smoke
+```
+
+A batch launcher is supplied in the parent repository:
+`sbatch jobs/job_blast3r_pose_matrix.sh` (submit from the SC3R root).
+It requests one 40 GB A100 (`thin`), 8 CPU cores, 48 GB of **host RAM**, and
+one hour. It runs all eight rows over all thirteen frozen scenes, continues
+past explicitly recorded scene failures, and writes logs to
+`<SC3R>/logs/blast3r_pose_matrix-<jobid>.out` and `.err`. It uses an absolute
+working directory, so the submitted job remains independent of the interactive
+allocation. Resubmitting the same command skips completed rows. To retry failed
+rows as well, pass `--rerun` (this also reruns successful rows).
+
+A measured Courtyard run on an A100 80 GB, with the full 100-iteration cap for
+all eight rows, took **57.5 seconds**. Native depth, matching and initial states
+were recomputed, while the already-built joint VGGT cache was reused. Peak
+PyTorch allocated memory was **5.37 GiB**, and peak reserved memory **7.94 GiB**;
+CUDA context and other driver allocations are additional. This is a measured
+single-scene example, not a guarantee for every scene. Budget roughly **15–30
+minutes for the thirteen-scene matrix**, excluding queue time; the one-hour
+request provides margin. A 40 GB A100 is the recommended batch choice for this
+cached ten-image, size-512 protocol. These measurements do not establish a
+minimum VRAM requirement or cover larger image sets/resolutions. Request an
+80 GB node explicitly if desired:
+
+```bash
+sbatch --constraint=fat jobs/job_blast3r_pose_matrix.sh
+```
+
+Override the wall time at submission if needed, e.g.
+`sbatch --time=02:00:00 jobs/job_blast3r_pose_matrix.sh`.
+The runner uses `<checkout>/.venv/bin/python` when present. All paths remain
+configurable through `scripts/experiment_paths.sh` and the CLI. The additional
+settings are `BLAST3R_MATCH_CHECKPOINT` (`naver/blast3r-matcher`),
+`BLAST3R_DEPTH_CHECKPOINT` (`naver/blast3r-depth`), and `BLAST3R_MATRIX_OUTPUT`
+(`<checkout>/outputs/evaluation/eth3d/pose_matrix`). Hugging Face checkpoints
+are downloaded under `BLAST3R_CACHE_ROOT/huggingface` unless `HF_HOME` is set.
+
+| Pose initialization | No BA | 2D-only BA | BLASt3R depth BA | VGGT feature depth BA |
+|---|---|---|---|---|
+| Joint VGGT-Omega | `vggt_no_ba` | `vggt_ba_none` | `vggt_ba_blast3r` | `vggt_ba_vggt` |
+| BLASt3R tree (depth matched to BA) | `blast3r_no_ba` | `blast3r_ba_none` | `blast3r_ba_blast3r` | `blast3r_ba_vggt` |
+
+Protocol:
+
+- VGGT-Omega runs **jointly on all ten images**. Its predicted poses initialize
+  the VGGT rows, and its jointly predicted depths/features supply the VGGT BA
+  residuals in both pose-source groups. This is a separate cache from the older
+  per-image monocular VGGT cache, which cannot supply multi-view poses.
+- BLASt3R initialization uses matched pixels, relative similarity alignment and
+  a maximum spanning tree, including scale propagation. **Its pointmaps follow
+  the BA depth basis:** native BLASt3R for `blast3r_ba_blast3r`, joint VGGT for
+  `blast3r_ba_vggt`. The no-BA and 2D-only BA rows use native BLASt3R as their
+  baseline (`--baseline_init_depth vggt` changes that explicit baseline choice).
+  `--blast3r_init_depth blast3r` or `vggt` can override the depth-matched policy
+  for a separate experiment; the requested default is `residual`.
+- Every row uses the **same cached BLASt3R tracks**, with all image pairs enabled
+  for these ten-image scenes. GT is used only when computing metrics.
+- Initial states are cached separately for joint VGGT poses, the native-depth
+  BLASt3R tree, and the VGGT-depth BLASt3R tree. Sparse points are initialized by
+  depth backprojection and averaging using the selected initializer. Each row
+  receives a fresh copy of its selected K/poses/points. The VGGT-pose rows share
+  their initial state; **the two BLASt3R depth-BA rows deliberately start from
+  different states**, because initialization depths follow the residual basis.
+  Their comparison measures initialization plus BA together, rather than an
+  isolated basis change. Every result records `initial_depth_source` and the
+  exact initial-state cache used.
+- The default shares one intrinsics matrix per scene, initialized with square
+  pixels and the median focal from the selected initializer.
+  `--independent_intrinsics` keeps separate matrices. The existing solver
+  optimizes `fx` and `fy` separately. All BA variants optimize intrinsics,
+  poses and sparse points; the first
+  camera pose is held fixed to select the coordinate frame.
+- 2D-only BA disables depth coefficients and uses exactly zero depth weight.
+  The solver preserves zero weights rather than clamping them back on.
+- Native depth BA uses the fixed base log depth, a scale/bias, and 15 learned
+  correction channels. VGGT depth BA uses the fixed joint base log depth,
+  a scale/bias, and 15 per-image whitened PCA feature maps. Each therefore has
+  16 adjustable depth parameters per image. Only the initial log-scale is fitted
+  to the frozen geometry; the 15 shape coefficients start at zero.
+- Default BA: one pose-refinement phase, at most 100 LM iterations, depth
+  objective weight `1e-4`, Huber delta `0.5`, minimum loss decrease `1e-4`.
+  There is no extra fixed-pose surface-stitching phase in this pose table.
+- Default AUC is the **exact normalized integral of empirical recall** for the
+  maximum of relative rotation and translation-direction errors, at 1, 5 and
+  30 degrees. Means weight the scenes equally (45 pairs per ten-image scene).
+  `--auc_mode histogram` reproduces the older evaluator's integer-degree-bin
+  approximation; at one degree that approximation is simply recall below 1°.
+  The legacy evaluator retains its original default. Translation-angle
+  conventions are shared with the existing evaluator.
+
+The output has `config.json`, `per_scene.csv`, `mean_auc.csv`, `mean_auc.tex`
+and `summary.json`, plus `<row>/<scene>.pth` and `<row>/<scene>.json`. Partial
+scene sets state their denominator explicitly. Means remain blank while any
+requested scene is pending; explicit failures score zero and retain their error
+messages. `--continue_on_error` records failures and continues; the default stops
+on the first error. Existing rows are skipped; `--rerun` retries/replaces them.
+Results from another configuration are rejected in the same output directory.
+
+Native depth predictions, tracks, shared initial states and matching-support graphs
+are cached under `BLAST3R_CACHE_ROOT/pose_matrix/<scene>/<input-identity>/`.
+The cache identity includes input pixels/order, checkpoint identities, seed,
+intrinsics convention and implementation identity. Iteration counts and depth
+weights can change while reusing inference caches in a new output directory.
+`vggt_ba_vggt` and `blast3r_ba_vggt` share the same joint VGGT feature prediction,
+stored separately under `BLAST3R_CACHE_ROOT/vggt_joint/<sequence-identity>.pth`.
+Joint feature capture concatenates all dense-head chunks (the Omega head decodes
+eight frames at a time), preserving all ten frames and their order.
+`match_graph.json` reports shared-track counts as a diagnostic for weak matching
+support; these counts are not a measurement of ground-truth visual overlap.
+
+Use `--rows vggt_no_ba blast3r_no_ba` to run only initial-pose baselines, or
+`--report_only` to rebuild tables without running networks. If the uniformly
+sampled scenes show poor VGGT initialization, evaluate a separately identified
+high-overlap subset; keep its selection and table separate from this experiment.
+
+The generated table uses `booktabs`, `amssymb`, and seven columns (`l ccc ccc`).
+
+Before skipping existing results, the runner verifies every frozen image against
+its selection SHA-256. The output protocol also records the selected image
+identities and Python/PyTorch/CUDA versions, preventing stale results from being
+reused after a dataset or runtime change.
