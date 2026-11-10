@@ -44,6 +44,16 @@ def calculate_auc_np(r_error, t_error, max_threshold=30):
     return np.mean(np.cumsum(normalized))
 
 
+def calculate_auc_exact_np(r_error, t_error, max_threshold=30):
+    """Exact normalized integral of the empirical recall curve on [0, threshold]."""
+    if max_threshold <= 0:
+        raise ValueError('AUC threshold must be positive')
+    errors = np.maximum(r_error, t_error)
+    if len(errors) == 0:
+        return None
+    return np.clip(1 - errors / max_threshold, 0, 1).mean()
+
+
 def compute_pose_errors(gt_c2ws, pred_c2ws):
     """Relative-pose accuracy over all image pairs of one scene.
 
@@ -64,7 +74,7 @@ def compute_pose_errors(gt_c2ws, pred_c2ws):
 
     # out = {'Auc_30': calculate_auc_np(rError, tError, max_threshold=30) * 100}
     out = {
-        f'Auc_{thr}': calculate_auc_np(rError, tError, max_threshold=thr) * 100
+        f'Auc_{thr}': calculate_auc_exact_np(rError, tError, max_threshold=thr) * 100
         for thr in AUC_THRESHOLDS
     }
 

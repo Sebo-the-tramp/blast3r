@@ -32,6 +32,7 @@ checkpoints/
 .vscode/
 .idea/
 .DS_Store
+.cache/
 
 # Local development files (not part of the release)
 dev/
