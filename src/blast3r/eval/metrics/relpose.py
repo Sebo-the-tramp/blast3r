@@ -5,8 +5,7 @@
 import numpy as np
 import torch
 
-THRESHOLDS = (5, 15, 30)
-
+AUC_THRESHOLDS = (1, 3, 5, 15, 30)
 
 def rotation_angle(rot_gt, rot_pred):
     B = rot_gt.shape[0]
@@ -63,8 +62,13 @@ def compute_pose_errors(gt_c2ws, pred_c2ws):
     rError = rotation_angle(gt_rel[:, :3, :3], pred_rel[:, :3, :3]).numpy()
     tError = translation_angle(gt_rel[:, :3, 3], pred_rel[:, :3, 3]).numpy()
 
-    out = {'Auc_30': calculate_auc_np(rError, tError, max_threshold=30) * 100}
-    for thr in THRESHOLDS:
+    # out = {'Auc_30': calculate_auc_np(rError, tError, max_threshold=30) * 100}
+    out = {
+        f'Auc_{thr}': calculate_auc_np(rError, tError, max_threshold=thr) * 100
+        for thr in AUC_THRESHOLDS
+    }
+
+    for thr in AUC_THRESHOLDS:
         out[f'Racc_{thr}'] = np.mean(rError < thr) * 100
         out[f'Tacc_{thr}'] = np.mean(tError < thr) * 100
     out['Rmean'] = np.mean(rError)

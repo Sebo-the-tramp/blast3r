@@ -19,7 +19,17 @@ from blast3r.eval.io import read_scene_predictions
 from blast3r.eval.metrics.relpose import compute_pose_errors
 from blast3r.eval.tables import build_table, show, to_latex, write_csv
 
-REPORT = ['Auc_30', 'Racc_5', 'Tacc_5', 'n_pairs']
+REPORT = [
+    'Auc_1',
+    'Auc_3',
+    'Auc_5',
+    'Auc_30',
+    'Racc_5',
+    'Tacc_5',
+    'n_images',
+    'n_gt_images',
+    'n_pairs',
+]
 
 
 def eval_scene(gt_poses, predictions):

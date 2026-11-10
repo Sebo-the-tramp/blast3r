@@ -36,3 +36,6 @@ checkpoints/
 # Local development files (not part of the release)
 dev/
 CLAUDE.md
+
+
+data/
