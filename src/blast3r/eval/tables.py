@@ -5,6 +5,9 @@ import pandas as pd
 
 # Column name -> label used in papers.
 LABELS = {
+    'Auc_1': 'AUC@1',
+    'Auc_3': 'AUC@3',
+    'Auc_5': 'AUC@5',
     'Auc_30': 'AUC@30',
     'Racc_5': 'RRA@5', 'Racc_15': 'RRA@15', 'Racc_30': 'RRA@30',
     'Tacc_5': 'RTA@5', 'Tacc_15': 'RTA@15', 'Tacc_30': 'RTA@30',
