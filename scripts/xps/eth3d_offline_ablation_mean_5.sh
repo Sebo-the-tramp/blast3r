@@ -37,18 +37,21 @@ BA_2D_ROOT="$EXPERIMENT_ROOT/ba_2d"
 BA_FIXED_DEPTH_ROOT="$EXPERIMENT_ROOT/ba_fixed_depth"
 BA_ALPHA_BETA_ROOT="$EXPERIMENT_ROOT/ba_alpha_beta"
 BA_FULL_ROOT="$EXPERIMENT_ROOT/ba_full"
+VGGT_ALPHA_BETA_ROOT="$EXPERIMENT_ROOT/vggt_alpha_beta"
 
 CKPT_MATCH="naver/blast3r-matcher"
 CKPT_DEPTH="naver/blast3r-depth"
+CKPT_VGGT_OMEGA="${CKPT_VGGT_OMEGA:-/fast-storage/huggingface/hub/models--facebook--VGGT-Omega/snapshots/1041e80fc0e911235d3426b0a3d9a81075111a53/vggt_omega_1b_512.pt}"
 
 # Enable configurations by leaving their names uncommented. Comment out any
 # configuration you want to skip.
 RUNS=(
-    no_ba
-    ba_2d
-    ba_fixed_depth
-    ba_alpha_beta
-    ba_full
+    # no_ba
+    # ba_2d
+    # ba_fixed_depth
+    # ba_alpha_beta
+    # ba_full
+    vggt_alpha_beta
 )
 
 run_enabled() {
@@ -69,7 +72,7 @@ for SEED in 0 1 2 3 4; do
             --mono_cam \
             --max_iters 0 \
             --seed "$SEED" \
-            --export_mode pose \
+            --export_mode full \
                 --use_cache
         fi
 
@@ -90,13 +93,13 @@ for SEED in 0 1 2 3 4; do
             --size 512 \
             --max_iters 100 \
             --weight_z 0 \
-            --n_zcfs 0 \
+            --n_zcfs 2 \
             --mono_cam \
             --optim_K True \
             --optim_P True \
             --optim_Z False \
             --seed "$SEED" \
-            --export_mode pose \
+            --export_mode full \
                 --use_cache
         fi
 
@@ -123,7 +126,7 @@ for SEED in 0 1 2 3 4; do
             --optim_P True \
             --optim_Z False \
             --seed "$SEED" \
-            --export_mode pose \
+            --export_mode full \
                 --use_cache
         fi
 
@@ -150,7 +153,7 @@ for SEED in 0 1 2 3 4; do
             --optim_P True \
             --optim_Z True \
             --seed "$SEED" \
-            --export_mode pose \
+            --export_mode full \
                 --use_cache
         fi
 
@@ -178,8 +181,36 @@ for SEED in 0 1 2 3 4; do
             --optim_P True \
             --optim_Z True \
             --seed "$SEED" \
-            --export_mode pose \
+            --export_mode full \
                 --use_cache
+        fi
+
+        python "$(dirname "$0")/../eval_offline.py" \
+            --gt_dir "$ETH3D" \
+            --preds_dir "$RUN_OUTPUT"
+    fi
+
+    if run_enabled vggt_alpha_beta; then
+        # Monocular VGGT-Omega depth (one independent forward pass per image)
+        # with affine alpha/beta BA. Deliberately bypasses the offline cache.
+        RUN_OUTPUT="$VGGT_ALPHA_BETA_ROOT/seed_$SEED"
+        if [[ "$EVAL_ONLY" != true ]]; then
+            python "$(dirname "$0")/../run_offline.py" \
+            --images "$ETH3D"/*/ \
+            --output "$RUN_OUTPUT" \
+            --ckpt_match "$CKPT_MATCH" \
+            --ckpt_depth "$CKPT_VGGT_OMEGA" \
+            --depth_backend vggt_omega \
+            --size 512 \
+            --max_iters 100 \
+            --weight_z 1e-4 \
+            --n_zcfs 2 \
+            --mono_cam \
+            --optim_K True \
+            --optim_P True \
+            --optim_Z True \
+            --seed "$SEED" \
+            --export_mode full
         fi
 
         python "$(dirname "$0")/../eval_offline.py" \
@@ -218,8 +249,14 @@ if run_enabled ba_full; then
         --expected_runs 0
 fi
 
+if run_enabled vggt_alpha_beta; then
+    python "$(dirname "$0")/../aggregate_offline_runs.py" \
+        --runs_dir "$VGGT_ALPHA_BETA_ROOT" \
+        --expected_runs 0
+fi
+
 # Render one LaTeX row per configuration in the manifest, including mean time.
-# This requires all four configurations listed in the manifest to be enabled.
+# The optional VGGT row stays blank until it has evaluated runs.
 if run_enabled ba_2d && run_enabled ba_fixed_depth && \
    run_enabled ba_alpha_beta && run_enabled ba_full; then
     python "$(dirname "$0")/../aggregate_offline_runs.py" \

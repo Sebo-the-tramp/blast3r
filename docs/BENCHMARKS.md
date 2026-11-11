@@ -79,6 +79,29 @@ python scripts/eval_offline.py --gt_dir /path/to/gt --preds_dir /path/to/output
 It reports AUC@30, RRA@5 and RTA@5 per scene plus an average. A scene with no
 prediction is scored as zero and reported as such, as in the paper.
 
+For ETH3D, the same command can additionally evaluate the dense reconstruction
+with the official `ETH3DMultiViewEvaluation` program. Dense evaluation requires
+predictions saved with `--export_mode full` and the separately downloaded
+`*_dslr_scan_eval` archives:
+
+```bash
+python scripts/eval_offline.py --gt_dir data/eth3d --preds_dir out/eth3d \
+  --eval_pointcloud --eth3d_scans_dir /path/to/ETH3D
+```
+
+The evaluator source is vendored under `tools/eth3d_multi_view_evaluation` and
+the executable is discovered automatically when built in that directory's
+`build/` subdirectory. Alternatively, pass `--eth3d_evaluator`, set
+`ETH3D_EVALUATOR`, or put `ETH3DMultiViewEvaluation` on `PATH`.
+
+This still writes `relpose.csv`, and also writes `eth3d_pointcloud.csv`, the
+aligned PLY files, and the official evaluator logs. Because monocular output has
+an arbitrary coordinate frame and scale, the dense reconstruction is first
+Sim(3)-aligned using its predicted camera centres and the ETH3D camera centres.
+The resulting accuracy/completeness/F1 scores therefore measure the combined
+pose-and-depth reconstruction, not depth independently of pose. `--point_stride`,
+`--max_depth`, and `--conf_threshold` control optional dense-point filtering.
+
 **Trajectory error**, for online reconstructions on TUM-RGBD or ETH3D-SLAM,
 which share a file format:
 

@@ -1,0 +1,17 @@
+\begin{table*}[t]
+\centering
+\caption{Point-cloud accuracy on ETH3D (13 scenes). VGGT-$\Omega$ uses a rank-15 feature basis. All rows share BLASt3R tracks. BLASt3R initialization follows the BA depth basis, using native depth for the no-depth baselines. F1 is reported at the indicated distance thresholds. Pending entries are blank; failed scenes score zero. Best results in each column are bold.}
+\label{tab:ablation-pointcloud-accuracy}
+\begin{tabular}{@{}l ccc cccc@{}}
+\toprule
+& \multicolumn{3}{c}{BA optimized variables}
+& \multicolumn{4}{c}{Full scene: mean F1} \\
+\cmidrule(lr){2-4} \cmidrule(lr){5-8}
+Pose source
+& BA & BLASt3R depth & VGGT feat. depth
+& @1 & @2 & @5 & @10 \\
+\midrule
+{{POINTCLOUD_ROWS}}
+\bottomrule
+\end{tabular}
+\end{table*}

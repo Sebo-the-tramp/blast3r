@@ -21,11 +21,12 @@ from blast3r.inference.timing import timer
 
 OFFLINE_CACHE_FORMAT = 1
 DEPTH_CACHE_SCHEMA = 1
-DEPTH_BACKEND = 'blast3r'
 
 
 def arg_parser():
     parser = base_parser('BLASt3R offline reconstruction')
+    parser.add_argument('--depth_backend', choices=('blast3r', 'vggt_omega'), default='blast3r',
+                        help='model used for depth and focal initialization')
     parser.add_argument('--use_cache', action='store_true',
                         help='reuse shared depths and seed-specific pre-BA initialization')
     parser.add_argument('--cache_dir', default='.cache/blast3r/offline',
@@ -56,14 +57,14 @@ def _cache_file(cache_dir, kind, scene, metadata, seed=None):
 
 
 def _cache_config(views, scene, seed, ckpt_depth, ckpt_match, size, force_ar,
+                  depth_backend,
                   device, dtype, options, cache_dir):
     depth_metadata = {
         'format': OFFLINE_CACHE_FORMAT,
         # Cache the normalized depth representation consumed by the pipeline,
-        # not backend-private model outputs. A future VGGT adapter can use the
-        # same schema under its own backend namespace.
+        # not backend-private model outputs. Backends use separate namespaces.
         'schema': DEPTH_CACHE_SCHEMA,
-        'backend': DEPTH_BACKEND,
+        'backend': depth_backend,
         'scene': str(scene),
         'images': _image_fingerprints(views),
         'ckpt_depth': str(ckpt_depth),
@@ -89,7 +90,7 @@ def _cache_config(views, scene, seed, ckpt_depth, ckpt_match, size, force_ar,
         'optim_P': any(options.get('optim_P', [True])),
     }
     return ({
-        'depth': _cache_file(cache_dir, f'depth/{DEPTH_BACKEND}', scene, depth_metadata),
+        'depth': _cache_file(cache_dir, f'depth/{depth_backend}', scene, depth_metadata),
         'init': _cache_file(cache_dir, 'init', scene, init_metadata, seed=seed),
     }, {
         'depth': depth_metadata,
@@ -99,10 +100,10 @@ def _cache_config(views, scene, seed, ckpt_depth, ckpt_match, size, force_ar,
 
 def run(images, ckpt_depth, ckpt_match, size, force_ar, output, export_mode, name=None,
         skip_existing=False, skip_failures=False, seed=0, device='cuda', dtype=torch.float32,
-        use_cache=False, cache_dir='.cache/blast3r/offline',
+        use_cache=False, cache_dir='.cache/blast3r/offline', depth_backend='blast3r',
         **options):
     dataset = load_dataset(images, size=size, force_ar=force_ar, name=name)
-    depther = load_depth_model(ckpt_depth, device=device, dtype=dtype)
+    depther = load_depth_model(ckpt_depth, device=device, dtype=dtype, backend=depth_backend)
     matcher = load_match_model(ckpt_match, device=device, dtype=dtype)
 
     for i, views in enumerate(dataset):
@@ -122,6 +123,7 @@ def run(images, ckpt_depth, ckpt_match, size, force_ar, output, export_mode, nam
         if use_cache:
             cache_paths, cache_metadata = _cache_config(
                 views, scene or filename, seed, ckpt_depth, ckpt_match, size, force_ar,
+                depth_backend,
                 device, dtype, options, cache_dir)
         try:
             # release the previous scene's buffers before sizing this one

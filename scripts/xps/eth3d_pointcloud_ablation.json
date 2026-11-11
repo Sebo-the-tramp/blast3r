@@ -1,0 +1,70 @@
+[
+  {
+    "label": "BLASt3R-matcher",
+    "runs_dir": "no_ba",
+    "ba": "\\xmark",
+    "blast3r_depth": "--",
+    "vggt_feat_depth": "--"
+  },
+  {
+    "label": "BLASt3R-matcher (2D BA)",
+    "runs_dir": "ba_2d",
+    "ba": "\\cmark",
+    "blast3r_depth": "\\xmark",
+    "vggt_feat_depth": "\\xmark"
+  },
+  {
+    "label": "BLASt3R-matcher (fixed depth)",
+    "runs_dir": "ba_fixed_depth",
+    "ba": "\\cmark",
+    "blast3r_depth": "\\cmark",
+    "vggt_feat_depth": "\\xmark"
+  },
+  {
+    "label": "BLASt3R-matcher ($\\alpha_{n,1},\\beta_n$ free)",
+    "runs_dir": "ba_alpha_beta",
+    "ba": "\\cmark",
+    "blast3r_depth": "\\cmark",
+    "vggt_feat_depth": "\\xmark"
+  },
+  {
+    "label": "BLASt3R-matcher (full depth)",
+    "runs_dir": "ba_full",
+    "ba": "\\cmark",
+    "blast3r_depth": "\\cmark",
+    "vggt_feat_depth": "\\xmark"
+  },
+  {
+    "label": "BLASt3R-matcher $r{=}0$ (run-1)",
+    "runs_dir": "vggt_r0_run1",
+    "ba": "\\cmark",
+    "blast3r_depth": "\\xmark",
+    "vggt_feat_depth": "\\cmark",
+    "separator_before": true,
+    "optional": true
+  },
+  {
+    "label": "BLASt3R-matcher $r{=}0$ (run-2)",
+    "runs_dir": "vggt_r0_run2",
+    "ba": "\\cmark",
+    "blast3r_depth": "\\xmark",
+    "vggt_feat_depth": "\\cmark",
+    "optional": true
+  },
+  {
+    "label": "BLASt3R-matcher $r{=}0$ (run-3)",
+    "runs_dir": "vggt_r0_run3",
+    "ba": "\\cmark",
+    "blast3r_depth": "\\xmark",
+    "vggt_feat_depth": "\\cmark",
+    "optional": true
+  },
+  {
+    "label": "BLASt3R-matcher $r{=}16$",
+    "runs_dir": "vggt_r16",
+    "ba": "\\cmark",
+    "blast3r_depth": "\\xmark",
+    "vggt_feat_depth": "\\cmark",
+    "optional": true
+  }
+]

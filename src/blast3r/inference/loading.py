@@ -208,10 +208,11 @@ def load_retriever(path, model, device):
 
 class DelayedLoadingModel:
     """Defer the (slow) checkpoint load until the model is first used."""
-    def __init__(self, load_func, force_dtype=None):
+    def __init__(self, load_func, force_dtype=None, depth_backend=None):
         self._model = None
         self._load_func = load_func
         self.force_dtype = force_dtype
+        self.depth_backend = depth_backend
 
     @property
     def __model(self):
@@ -226,8 +227,17 @@ class DelayedLoadingModel:
         return getattr(self.__model, key)
 
 
-def load_depth_model(path, device='cuda', dtype=None):
-    return DelayedLoadingModel(lambda: load_model(path, device=device, dtype=dtype)[0], force_dtype=dtype)
+def load_depth_model(path, device='cuda', dtype=None, backend='blast3r'):
+    if backend == 'blast3r':
+        return DelayedLoadingModel(
+            lambda: load_model(path, device=device, dtype=dtype)[0],
+            force_dtype=dtype, depth_backend=backend)
+    if backend == 'vggt_omega':
+        from .vggt_omega_depth import VGGTOmegaDepth
+        return DelayedLoadingModel(
+            lambda: VGGTOmegaDepth(path, device=device),
+            force_dtype=torch.float32, depth_backend=backend)
+    raise ValueError(f'unknown depth backend: {backend}')
 
 
 def load_match_model(path, device='cuda', dtype=None):

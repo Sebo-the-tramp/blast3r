@@ -6,6 +6,7 @@ from torch import autocast
 
 from blast3r.utils.device import todevice
 from blast3r.image import detokenize
+from blast3r.utils.geometry import depthmap_to_pts3d
 
 
 
@@ -13,6 +14,9 @@ from blast3r.image import detokenize
 @torch.inference_mode()
 def compute_pts3d_multidepths(model, views):
     assert not isinstance(model, types.LambdaType), 'the model must be loaded before reaching here'
+
+    if getattr(model, 'depth_backend', 'blast3r') == 'vggt_omega':
+        return compute_vggt_omega_depths(model, views)
 
     imgs_shape = views['img'].shape
     assert imgs_shape[-3:] == (3, 16, 16), 'wrong format: images are not tokenized'
@@ -55,3 +59,40 @@ def compute_pts3d_multidepths(model, views):
     print('Found', multidepth[0].shape[-1], 'Z components')
 
     return conf, pts3d, multidepth, depth_mode
+
+
+@torch.inference_mode()
+def compute_vggt_omega_depths(model, views):
+    """Adapt VGGT-Omega outputs to BLASt3R's log-multidepth interface.
+
+    Every view is evaluated independently as a one-frame VGGT-Omega batch. Its
+    single positive depth map becomes ``[log(depth), 1]``, so BA can optimize
+    alpha and beta but no corrective depth components.
+    """
+    imgs_shape = views['img'].shape
+    assert len(imgs_shape) == 5 and imgs_shape[-3:] == (3, 16, 16), \
+        f'expected tokenized multi-view images, got {imgs_shape}'
+
+    shapes = [tuple(map(int, shape)) for shape in views['true_shape'].tolist()]
+    images = []
+    for image, shape in zip(views['img'], shapes):
+        image = detokenize(image, shape, chan_dim=-3)
+        images.append((image.float() / 2 + 0.5).clamp(0, 1))
+
+    print(f'>> Extracting monocular VGGT-Omega depthmaps for {len(images)} images ...')
+    out_conf, pts3d, multidepth = [], [], []
+    for image in images:
+        # A separate call is intentional: this experiment tests VGGT-Omega as
+        # a monocular depth prior, with no information exchange across views.
+        depth, conf, intrinsics = model.predict(image.unsqueeze(0))
+        depth_i = depth[0, 0, ..., 0].float().clamp_min(1e-8)
+        conf_i = conf[0, 0].float()
+        K_i = intrinsics[0, 0].float()
+
+        out_conf.append(conf_i)
+        pts3d.append(depthmap_to_pts3d(depth_i, K_i))
+        log_depth = depth_i.log()
+        multidepth.append(torch.stack((log_depth, torch.ones_like(log_depth)), dim=-1))
+
+    print('Found 2 Z components (VGGT-Omega log-depth + constant)')
+    return out_conf, pts3d, multidepth, 'log_multidepth'

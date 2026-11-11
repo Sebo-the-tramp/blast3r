@@ -26,5 +26,13 @@
     "ba": "\\cmark",
     "blast3r_depth": "\\cmark",
     "vggt_feat_depth": "\\xmark"
+  },
+  {
+    "label": "BLASt3R-matcher + VGGT-$\\Omega$ depth ($\\alpha,\\beta$ BA)",
+    "runs_dir": "vggt_alpha_beta",
+    "ba": "\\cmark",
+    "blast3r_depth": "\\xmark",
+    "vggt_feat_depth": "\\cmark",
+    "optional": true
   }
 ]

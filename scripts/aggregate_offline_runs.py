@@ -120,15 +120,19 @@ def render_ablation_table(template_path, manifest_path, output_path, expected_ru
         if missing:
             raise ValueError(f'manifest row is missing fields: {sorted(missing)}')
         runs_dir = Path(runs_root) / item['runs_dir'] if runs_root else Path(item['runs_dir'])
-        paths, runs, scenes = load_runs(runs_dir, item.get('pattern', 'seed_*/relpose.csv'),
-                                        item.get('expected_runs', expected_runs))
-        summary, _ = aggregate(runs)
-        timing = aggregate_timings(paths, scenes)
-        full = summary.join(timing)
-        avg = full.loc['AVG']
+        pattern = item.get('pattern', 'seed_*/relpose.csv')
+        if item.get('optional') and not list(runs_dir.glob(pattern)):
+            metrics = ['', '', '', '']
+        else:
+            paths, runs, scenes = load_runs(runs_dir, pattern,
+                                            item.get('expected_runs', expected_runs))
+            summary, _ = aggregate(runs)
+            timing = aggregate_timings(paths, scenes)
+            avg = summary.join(timing).loc['AVG']
+            metrics = [f"{avg['Auc_1_mean']:.2f}", f"{avg['Auc_5_mean']:.2f}",
+                       f"{avg['Auc_30_mean']:.2f}", f"{avg['time_mean_s']:.2f}"]
         cells = [item['label'], item['ba'], item['blast3r_depth'], item['vggt_feat_depth'],
-                 f"{avg['Auc_1_mean']:.2f}", f"{avg['Auc_5_mean']:.2f}",
-                 f"{avg['Auc_30_mean']:.2f}", f"{avg['time_mean_s']:.2f}"]
+                 *metrics]
         rows.append(' & '.join(map(str, cells)) + ' \\\\')
 
     if '{{ABLATION_ROWS}}' not in template:
@@ -199,3 +203,14 @@ def main():
 
 if __name__ == '__main__':
     main()
+
+"""
+RUN THIS
+
+python scripts/aggregate_offline_runs.py \
+  --runs_dir out/eth3d/ablation/ba_2d \
+  --expected_runs 5 \
+  --latex_manifest scripts/xps/eth3d_offline_ablation_mean_5.json \
+  --latex_runs_root out/eth3d/ablation \
+  --latex_output out/eth3d/ablation/ablation_table.ltx
+"""
