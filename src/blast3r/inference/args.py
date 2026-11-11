@@ -63,6 +63,8 @@ def base_parser(description):
     parser.add_argument('-nz', '--n_zcfs', type=int, default=[1], nargs='+', help='number of depth components')
     parser.add_argument('-K', '--optim_K', type=my_bool, default=[True], nargs='+', help='optimize the focals')
     parser.add_argument('-P', '--optim_P', type=my_bool, default=[True], nargs='+', help='optimize the poses')
+    parser.add_argument('-Z', '--optim_Z', type=my_bool, default=[True], nargs='+',
+                        help='optimize the per-image depth coefficients')
     parser.add_argument('--huber_delta', type=float, default=0.5, help='Huber loss half-width')
     parser.add_argument('--min_loss_delta', type=float, default=1e-4, help='min decrease of the loss')
 

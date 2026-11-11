@@ -74,7 +74,7 @@ def compute_pose_errors(gt_c2ws, pred_c2ws):
 
     # out = {'Auc_30': calculate_auc_np(rError, tError, max_threshold=30) * 100}
     out = {
-        f'Auc_{thr}': calculate_auc_exact_np(rError, tError, max_threshold=thr) * 100
+        f'Auc_{thr}': calculate_auc_np(rError, tError, max_threshold=thr) * 100
         for thr in AUC_THRESHOLDS
     }
 

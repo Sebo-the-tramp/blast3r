@@ -121,7 +121,11 @@ class GaussNewtonSolver:
         assert w_pts.shape in ((self.n_kpts, 1), (self.n_kpts, 3))
 
         W = w_pts.expand(-1,3)
-        W = W.clamp(min=clamp_w[0], max=clamp_w[1])
+        # Preserve deliberately disabled residual components (e.g. weight_z=0
+        # for classical 2D BA). Only positive robust weights need numerical
+        # clamping; turning zero into clamp_w[0] would re-enable the residual.
+        # W = torch.where(W > 0, W.clamp(min=clamp_w[0], max=clamp_w[1]), W)
+        W = torch.where(W == 0, torch.zeros_like(W), W.clamp(min=clamp_w[0], max=clamp_w[1]))
         W = W.ravel()
 
         # compute the jacobian x weighted residuals

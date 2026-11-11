@@ -1,0 +1,22 @@
+% One row per manifest entry; the aggregator substitutes the metric fields.
+\begin{table*}[t]
+\centering
+\caption{Mean relative-pose AUC on ETH3D (13 scenes). VGGT-$\Omega$ uses a rank-15 feature basis. All rows share BLASt3R tracks. BLASt3R initialization follows the BA depth basis, using native depth for the no-depth baselines. Pending entries are blank; failed scenes score zero.}
+\label{tab:ablation-pose-optimized-variables}
+\begin{tabular}{@{}l ccc ccc c@{}}
+\toprule
+& \multicolumn{3}{c}{BA optimized variables}
+& \multicolumn{3}{c}{Full scene: Mean AUC}
+& \multicolumn{1}{c}{Timing} \\
+\cmidrule(lr){2-4} \cmidrule(lr){5-7} \cmidrule(lr){8-8}
+Pose source & BA & BLASt3R depth & VGGT feat. depth
+& @1$^\circ$ & @5$^\circ$ & @30$^\circ$ & Time (s) \\
+\midrule
+% The first non-manifest row is the reported non-BA reference.
+BLASt3R-matcher & \xmark & -- & -- & 0.08 & 6.18 & 49.48 & 201.91 \\
+\midrule
+% Rows below are generated from --latex_manifest in its listed order.
+{{ABLATION_ROWS}}
+\bottomrule
+\end{tabular}
+\end{table*}

@@ -4,6 +4,7 @@
 """Aggregate per-scene offline metrics over repeated inference runs."""
 
 import argparse
+import json
 from pathlib import Path
 
 import pandas as pd
@@ -14,11 +15,13 @@ from blast3r.eval.tables import LABELS
 
 def load_runs(runs_dir, pattern, expected_runs):
     paths = sorted(Path(runs_dir).glob(pattern))
-    if len(paths) != expected_runs:
+    if expected_runs and len(paths) != expected_runs:
         raise ValueError(
             f'expected {expected_runs} run CSVs matching {pattern!r} under '
             f'{runs_dir}, found {len(paths)}: {[str(path) for path in paths]}'
         )
+    if not paths:
+        raise ValueError(f'no run CSVs matching {pattern!r} under {runs_dir}')
 
     runs = {}
     expected_scenes = None
@@ -29,9 +32,13 @@ def load_runs(runs_dir, pattern, expected_runs):
             raise ValueError(f'{path} has no AVG row')
 
         scene_table = table.drop(index='AVG')
-        if 'status' in scene_table and not scene_table['status'].eq('ok').all():
-            bad = scene_table.index[~scene_table['status'].eq('ok')].tolist()
-            raise ValueError(f'{path} has missing or failed scenes: {bad}')
+        # Evaluation records failed/missing scenes explicitly. The paper table
+        # convention assigns those scenes zero rather than dropping a run.
+        if 'status' in scene_table:
+            failed = ~scene_table['status'].eq('ok')
+            metric_columns = scene_table.select_dtypes(include='number').columns
+            scene_table.loc[failed, metric_columns] = 0
+            table = pd.concat([scene_table, table.loc[['AVG']]])
 
         scenes = scene_table.index.tolist()
         if expected_scenes is None:
@@ -67,7 +74,9 @@ def aggregate_timings(paths, scenes):
         for scene in scenes:
             prediction = csv_path.parent / f'{scene}.pth'
             if not prediction.exists():
-                raise ValueError(f'missing prediction needed for timing: {prediction}')
+                # A failed scene still contributes zero time to the mean.
+                rows.append({'run': run_name, 'scene': scene, 'total_time_s': 0.0})
+                continue
 
             result = torch.load(prediction, map_location='cpu', weights_only=False)
             try:
@@ -96,16 +105,55 @@ def aggregate_timings(paths, scenes):
     return summary
 
 
+def render_ablation_table(template_path, manifest_path, output_path, expected_runs):
+    """Fill the ablation table from a JSON list of labeled run directories."""
+    template = Path(template_path).read_text()
+    manifest = json.loads(Path(manifest_path).read_text())
+    if not isinstance(manifest, list) or not manifest:
+        raise ValueError('LaTeX manifest must be a non-empty JSON list')
+
+    rows = []
+    required = {'label', 'runs_dir', 'ba', 'blast3r_depth', 'vggt_feat_depth'}
+    for item in manifest:
+        missing = required - item.keys()
+        if missing:
+            raise ValueError(f'manifest row is missing fields: {sorted(missing)}')
+        paths, runs, scenes = load_runs(item['runs_dir'], item.get('pattern', 'seed_*/relpose.csv'),
+                                        item.get('expected_runs', expected_runs))
+        summary, _ = aggregate(runs)
+        timing = aggregate_timings(paths, scenes)
+        full = summary.join(timing)
+        avg = full.loc['AVG']
+        cells = [item['label'], item['ba'], item['blast3r_depth'], item['vggt_feat_depth'],
+                 f"{avg['Auc_1_mean']:.2f}", f"{avg['Auc_5_mean']:.2f}",
+                 f"{avg['Auc_30_mean']:.2f}", f"{avg['time_mean_s']:.2f}"]
+        rows.append(' & '.join(map(str, cells)) + ' \\\\')
+
+    if '{{ABLATION_ROWS}}' not in template:
+        raise ValueError(f'{template_path} has no {{{{ABLATION_ROWS}}}} placeholder')
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(template.replace('{{ABLATION_ROWS}}', '\n'.join(rows)) + '\n')
+    return output_path
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--runs_dir', required=True,
                         help='directory containing one seed_<N> subdirectory per run')
     parser.add_argument('--pattern', default='seed_*/relpose.csv',
                         help='run CSV glob relative to --runs_dir')
-    parser.add_argument('--expected_runs', type=int, default=5,
-                        help='required number of complete runs')
+    parser.add_argument('--expected_runs', type=int, default=0,
+                        help='required run count; 0 detects the number of matching runs (default)')
     parser.add_argument('--output', default=None,
                         help='output CSV (default: <runs_dir>/relpose_mean_std.csv)')
+    parser.add_argument('--latex_manifest', default=None,
+                        help='JSON list mapping ablation table rows to run directories')
+    parser.add_argument('--latex_template',
+                        default=str(Path(__file__).resolve().parents[1] / 'templates/ablation_table.ltx'),
+                        help='ablation LaTeX template')
+    parser.add_argument('--latex_output', default=None,
+                        help='write a filled LaTeX table (requires --latex_manifest)')
     args = parser.parse_args()
 
     paths, runs, scenes = load_runs(args.runs_dir, args.pattern, args.expected_runs)
@@ -134,6 +182,15 @@ def main():
         'time_std_s': 'Std',
     }).to_markdown(floatfmt='.3f'))
     print(f'\nWrote {output}')
+    if args.latex_manifest:
+        latex_path = render_ablation_table(
+            args.latex_template, args.latex_manifest,
+            args.latex_output or str(Path(args.runs_dir) / 'ablation_table.ltx'),
+            args.expected_runs,
+        )
+        print(f'Wrote {latex_path}')
+    elif args.latex_output:
+        parser.error('--latex_output requires --latex_manifest')
 
 
 if __name__ == '__main__':

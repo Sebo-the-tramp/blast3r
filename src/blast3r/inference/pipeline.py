@@ -4,6 +4,9 @@
 
 The drivers in `scripts/` wrap these with argument parsing, batching and saving.
 """
+import os
+from pathlib import Path
+
 import torch
 from tqdm import tqdm
 
@@ -20,6 +23,28 @@ from .timing import timer
 from .tracks import OnlineMatcher, StoredFlows, compute_tracks, find_keypoints, gather_data_from_dense_tracks, rm_duplicated_tracks, rm_redundant_tracks
 
 
+def _load_offline_cache(path, metadata, device):
+    if path is None or not Path(path).is_file():
+        return None
+    payload = torch.load(path, map_location='cpu', weights_only=False)
+    if payload.get('metadata') != metadata:
+        print(f'>> Ignoring stale offline cache: {path}')
+        return None
+    print(f'>> Loading offline cache: {path}')
+    return todevice(payload['data'], device)
+
+
+def _save_offline_cache(path, metadata, data):
+    if path is None:
+        return
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f'.{path.name}.tmp.{os.getpid()}')
+    torch.save({'metadata': metadata, 'data': todevice(data, 'cpu')}, tmp)
+    os.replace(tmp, path)
+    print(f'>> Wrote offline cache: {path}')
+
+
 @torch.inference_mode()
 def run_inference(views, depther, matcher,
                   mono_cam=False,
@@ -31,44 +56,75 @@ def run_inference(views, depther, matcher,
                   optim_memory=False,
                   denoise_depth=False,
                   on_init=None,
+                  cache_paths=None,
+                  cache_metadata=None,
                   **BA_args):
     assert isinstance(views, dict)
     assert 'img' in views and 'true_shape' in views
+    cache_paths = cache_paths or {}
+    cache_metadata = cache_metadata or {}
     n_imgs = len(views['img'])
-    n_tokens, patch_size = get_ntokens(views)
-    views = todevice(views, device)
+    raw_views = todevice(views, device)
 
-    matcher = OnlineMatcher(matcher, n_imgs, n_tokens, patch_size, device)
+    depth = _load_offline_cache(cache_paths.get('depth'),
+                                cache_metadata.get('depth'), device)
+    if depth is None:
+        with timer.time('depth_pred'):
+            conf, ptmap, multidepth, depth_mode = compute_pts3d_multidepths(
+                depther, raw_views)
+        _save_offline_cache(cache_paths.get('depth'), cache_metadata.get('depth'), {
+            'conf': conf,
+            'ptmap': ptmap,
+            'multidepth': multidepth,
+            'depth_mode': depth_mode,
+        })
+    else:
+        conf = depth['conf']
+        ptmap = depth['ptmap']
+        multidepth = depth['multidepth']
+        depth_mode = depth['depth_mode']
 
-    if optim_memory:
-        toggle_memory_efficient_attention(True)
-
-    with timer.time('depth_pred'):
-        conf, ptmap, multidepth, depth_mode = compute_pts3d_multidepths(depther, views)
-
-    with timer.time('flow_pred'):
-        tracks = compute_tracks(matcher, views,
-                                kpt_spacing=kpt_spacing,
-                                remove_far_kpts=remove_far_kpts,
-                                num_retrieved_images=num_retrieved_images,
-                                retrieval_mode=retrieval_mode,
-                                optim_memory=optim_memory)
-        print(f'>> Gathered {len(tracks)} tracks from {n_imgs} images')
-
-    views = [init_view(get_at(views, i), conf[i], ptmap[i], multidepth[i], depth_mode,
+    views = [init_view(get_at(raw_views, i), conf[i], ptmap[i], multidepth[i], depth_mode,
                        BA_args['optim_K'], BA_args['optim_P'])
              for i in range(n_imgs)]
 
-    with timer.time('ba_init'):
-        print('>> Gathering tracks data ...')
-        track_data = gather_data_from_dense_tracks(views, tracks)
+    initialized = _load_offline_cache(cache_paths.get('init'),
+                                      cache_metadata.get('init'), device)
+    if initialized is not None:
+        track_data = initialized['track_data'].to(device)
+        rigs = initialized['rigs'].to(device)
+        pts3d = initialized['pts3d']
+    else:
+        n_tokens, patch_size = get_ntokens(raw_views)
+        matcher = OnlineMatcher(matcher, n_imgs, n_tokens, patch_size, device)
+        if optim_memory:
+            toggle_memory_efficient_attention(True)
 
-        print('>> Initializing poses ...')
-        rigs = init_poses_minspan_tree(views, track_data, depth_mode, mono_cam=mono_cam)
-        pts3d = gather_pts3d(track_data, rigs)
+        with timer.time('flow_pred'):
+            tracks = compute_tracks(matcher, raw_views,
+                                    kpt_spacing=kpt_spacing,
+                                    remove_far_kpts=remove_far_kpts,
+                                    num_retrieved_images=num_retrieved_images,
+                                    retrieval_mode=retrieval_mode,
+                                    optim_memory=optim_memory)
+            print(f'>> Gathered {len(tracks)} tracks from {n_imgs} images')
 
-        if on_init is not None:
-            on_init(views, rigs)
+        with timer.time('ba_init'):
+            print('>> Gathering tracks data ...')
+            track_data = gather_data_from_dense_tracks(views, tracks)
+
+            print('>> Initializing poses ...')
+            rigs = init_poses_minspan_tree(views, track_data, depth_mode, mono_cam=mono_cam)
+            pts3d = gather_pts3d(track_data, rigs)
+
+        _save_offline_cache(cache_paths.get('init'), cache_metadata.get('init'), {
+            'track_data': track_data.to('cpu'),
+            'rigs': rigs.to('cpu'),
+            'pts3d': pts3d.cpu(),
+        })
+
+    if on_init is not None:
+        on_init(views, rigs)
 
     with timer.time('ba'):
         ptmap = []

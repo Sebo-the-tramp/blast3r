@@ -479,7 +479,9 @@ def bundle_adjustment(rigs_data, track_data, pts3d=None, z_coefs=None,
                 variables['z_coefs'] = torch.cat((z_coefs, z_coefs.new_zeros((len(z_coefs),n_zcfs-z_coefs.shape[1]))), dim=1).contiguous()
 
         if verbose:
+            torch.set_printoptions(precision=4, sci_mode=False)
             print(f"Starting phase {phase_num}, with {variables['z_coefs'].shape[1]} z-coefs.")
+            print(f'{variables['z_coefs']}')
         iter = 0
         while iter < max_iters:
             update, status = lm_step(rig.infos(trk), trk.pids, trk.pix2d, trk.pix2d_std, trk.pix2d_dep, **variables,

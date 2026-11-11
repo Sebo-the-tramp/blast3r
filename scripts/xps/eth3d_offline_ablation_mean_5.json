@@ -1,0 +1,30 @@
+[
+  {
+    "label": "BLASt3R-matcher (2D BA)",
+    "runs_dir": "out/eth3d/depth_ablation_v2/ba_2d",
+    "ba": "\\cmark",
+    "blast3r_depth": "\\xmark",
+    "vggt_feat_depth": "\\xmark"
+  },
+  {
+    "label": "BLASt3R-matcher (fixed depth)",
+    "runs_dir": "out/eth3d/depth_ablation_v2/ba_fixed_depth",
+    "ba": "\\cmark",
+    "blast3r_depth": "\\cmark",
+    "vggt_feat_depth": "\\xmark"
+  },
+  {
+    "label": "BLASt3R-matcher ($\\alpha,\\beta$ BA)",
+    "runs_dir": "out/eth3d/depth_ablation_v2/ba_alpha_beta",
+    "ba": "\\cmark",
+    "blast3r_depth": "\\cmark",
+    "vggt_feat_depth": "\\xmark"
+  },
+  {
+    "label": "BLASt3R-matcher (full depth BA)",
+    "runs_dir": "out/eth3d/depth_ablation_v2/ba_full",
+    "ba": "\\cmark",
+    "blast3r_depth": "\\cmark",
+    "vggt_feat_depth": "\\xmark"
+  }
+]

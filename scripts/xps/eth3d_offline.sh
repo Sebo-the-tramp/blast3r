@@ -24,7 +24,6 @@ python "$(dirname "$0")/../run_offline.py" \
     --ckpt_depth "$CKPT_DEPTH" \
     --size 512 \
     --mono_cam \
-    --export_mode pose \
-    --skip_existing
+    --export_mode pose
 
 python "$(dirname "$0")/../eval_offline.py" --gt_dir "$ETH3D" --preds_dir "$OUTPUT"
