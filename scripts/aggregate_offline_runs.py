@@ -105,7 +105,8 @@ def aggregate_timings(paths, scenes):
     return summary
 
 
-def render_ablation_table(template_path, manifest_path, output_path, expected_runs):
+def render_ablation_table(template_path, manifest_path, output_path, expected_runs,
+                          runs_root=None):
     """Fill the ablation table from a JSON list of labeled run directories."""
     template = Path(template_path).read_text()
     manifest = json.loads(Path(manifest_path).read_text())
@@ -118,7 +119,8 @@ def render_ablation_table(template_path, manifest_path, output_path, expected_ru
         missing = required - item.keys()
         if missing:
             raise ValueError(f'manifest row is missing fields: {sorted(missing)}')
-        paths, runs, scenes = load_runs(item['runs_dir'], item.get('pattern', 'seed_*/relpose.csv'),
+        runs_dir = Path(runs_root) / item['runs_dir'] if runs_root else Path(item['runs_dir'])
+        paths, runs, scenes = load_runs(runs_dir, item.get('pattern', 'seed_*/relpose.csv'),
                                         item.get('expected_runs', expected_runs))
         summary, _ = aggregate(runs)
         timing = aggregate_timings(paths, scenes)
@@ -154,6 +156,8 @@ def main():
                         help='ablation LaTeX template')
     parser.add_argument('--latex_output', default=None,
                         help='write a filled LaTeX table (requires --latex_manifest)')
+    parser.add_argument('--latex_runs_root', default=None,
+                        help='base directory for relative runs_dir entries in the manifest')
     args = parser.parse_args()
 
     paths, runs, scenes = load_runs(args.runs_dir, args.pattern, args.expected_runs)
@@ -186,7 +190,7 @@ def main():
         latex_path = render_ablation_table(
             args.latex_template, args.latex_manifest,
             args.latex_output or str(Path(args.runs_dir) / 'ablation_table.ltx'),
-            args.expected_runs,
+            args.expected_runs, args.latex_runs_root,
         )
         print(f'Wrote {latex_path}')
     elif args.latex_output:
