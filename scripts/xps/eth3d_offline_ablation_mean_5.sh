@@ -38,6 +38,7 @@ BA_FIXED_DEPTH_ROOT="$EXPERIMENT_ROOT/ba_fixed_depth"
 BA_ALPHA_BETA_ROOT="$EXPERIMENT_ROOT/ba_alpha_beta"
 BA_FULL_ROOT="$EXPERIMENT_ROOT/ba_full"
 VGGT_ALPHA_BETA_ROOT="$EXPERIMENT_ROOT/vggt_alpha_beta"
+VGGT_RANK1_ROOT="$EXPERIMENT_ROOT/vggt_rank1"
 VGGT_RANK15_ROOT="$EXPERIMENT_ROOT/vggt_rank15"
 
 CKPT_MATCH="naver/blast3r-matcher"
@@ -53,7 +54,8 @@ RUNS=(
     # ba_alpha_beta
     # ba_full
     # vggt_alpha_beta
-    vggt_rank15
+    vggt_rank1
+    # vggt_rank15
 )
 
 run_enabled() {
@@ -222,6 +224,36 @@ for SEED in 0 1 2 3 4; do
             --preds_dir "$RUN_OUTPUT"
     fi
 
+    if run_enabled vggt_rank1; then
+        # Rank-1 PCA-whitened VGGT feature depth: 3 total log-depth channels.
+        RUN_OUTPUT="$VGGT_RANK1_ROOT/seed_$SEED"
+        if [[ "$EVAL_ONLY" != true ]]; then
+            python "$(dirname "$0")/../run_offline.py" \
+            --images "$ETH3D"/*/ \
+            --output "$RUN_OUTPUT" \
+            --ckpt_match "$CKPT_MATCH" \
+            --ckpt_depth "$CKPT_VGGT_OMEGA" \
+            --depth_backend vggt_omega \
+            --vggt_feature_rank 1 \
+            --vggt_whitening 1 \
+            --size 512 \
+            --max_iters 100 \
+            --weight_z 1e-4 \
+            --n_zcfs 3 \
+            --mono_cam \
+            --optim_K True \
+            --optim_P True \
+            --optim_Z True \
+            --seed "$SEED" \
+            --export_mode full \
+            --use_cache
+        fi
+
+        python "$(dirname "$0")/../eval_offline.py" \
+            --gt_dir "$ETH3D" \
+            --preds_dir "$RUN_OUTPUT"
+    fi
+
     if run_enabled vggt_rank15; then
         # Reuse the raw monocular VGGT-Omega cache, PCA-whiten its 256-channel
         # quarter-resolution feature map to rank 15, then optimize all 17
@@ -288,6 +320,12 @@ fi
 if run_enabled vggt_alpha_beta; then
     python "$(dirname "$0")/../aggregate_offline_runs.py" \
         --runs_dir "$VGGT_ALPHA_BETA_ROOT" \
+        --expected_runs 0
+fi
+
+if run_enabled vggt_rank1; then
+    python "$(dirname "$0")/../aggregate_offline_runs.py" \
+        --runs_dir "$VGGT_RANK1_ROOT" \
         --expected_runs 0
 fi
 

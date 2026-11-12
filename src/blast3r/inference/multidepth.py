@@ -168,16 +168,16 @@ def vggt_omega_backend_to_multidepth(backend_data, views, feature_rank=0,
             feature if feature_rank else torch.empty((256, 1, 1), dtype=torch.float16),
             feature_rank, shape, shrinkage=whitening, device=device)
 
-        if feature_rank:  # log-depth + independently scaled signed basis maps
-            depth_viz = (log_depth - log_depth.amin()) / (log_depth.amax() - log_depth.amin()).clamp_min(1e-8)
-            basis_viz = 0.5 + 0.5 * basis / basis.abs().amax(dim=(0, 1), keepdim=True).clamp_min(1e-8)
-            depth_rgb = torch.from_numpy(colormaps['viridis'](depth_viz.cpu().numpy())[..., :3]).permute(2, 0, 1)
-            basis_rgb = torch.from_numpy(colormaps['viridis'](basis_viz.permute(2, 0, 1)[:15].cpu().numpy())[..., :3]).permute(0, 3, 1, 2)
-            tiles = torch.cat((depth_rgb[None], basis_rgb)).float()
-            name = Path(str(views.get('instance', [index])[index])).stem
-            viz_path = Path('.cache/blast3r/vggt_basis_viz') / str(views.get('label', ['scene'])[index]) / f'{name}_r{feature_rank}.png'
-            viz_path.parent.mkdir(parents=True, exist_ok=True)
-            save_image(make_grid(tiles, nrow=4), viz_path)
+        # if feature_rank:  # log-depth + independently scaled signed basis maps
+        #     depth_viz = (log_depth - log_depth.amin()) / (log_depth.amax() - log_depth.amin()).clamp_min(1e-8)
+        #     basis_viz = 0.5 + 0.5 * basis / basis.abs().amax(dim=(0, 1), keepdim=True).clamp_min(1e-8)
+        #     depth_rgb = torch.from_numpy(colormaps['viridis'](depth_viz.cpu().numpy())[..., :3]).permute(2, 0, 1)
+        #     basis_rgb = torch.from_numpy(colormaps['viridis'](basis_viz.permute(2, 0, 1)[:15].cpu().numpy())[..., :3]).permute(0, 3, 1, 2)
+        #     tiles = torch.cat((depth_rgb[None], basis_rgb)).float()
+        #     name = Path(str(views.get('instance', [index])[index])).stem
+        #     viz_path = Path('.cache/blast3r/vggt_basis_viz') / str(views.get('label', ['scene'])[index]) / f'{name}_r{feature_rank}.png'
+        #     viz_path.parent.mkdir(parents=True, exist_ok=True)
+        #     save_image(make_grid(tiles, nrow=4), viz_path)
 
         out_conf.append(conf_i)
         pts3d.append(depthmap_to_pts3d(depth_i, K_i))

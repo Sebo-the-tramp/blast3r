@@ -20,6 +20,7 @@ RUNS=(
     # ba_alpha_beta
     # ba_full
     vggt_alpha_beta  # enable after changing that run to --export_mode full
+    # vggt_rank1
     # vggt_rank15
 )
 

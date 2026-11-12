@@ -128,6 +128,12 @@ def run(images, ckpt_depth, ckpt_match, size, force_ar, output, export_mode, nam
     whitening = options.get('vggt_whitening', 1.0)
     if feature_rank < 0 or feature_rank > 256:
         raise ValueError(f'--vggt_feature_rank must be in [0, 256], got {feature_rank}')
+    supported_feature_ranks = {0, 1, 14, 15}
+    if depth_backend == 'vggt_omega' and feature_rank not in supported_feature_ranks:
+        raise ValueError(
+            f'--vggt_feature_rank={feature_rank} gives {feature_rank + 2} BA depth '
+            f'channels, unsupported by the fused CUDA kernel; choose one of '
+            f'{sorted(supported_feature_ranks)}')
     if not 0 <= whitening <= 1:
         raise ValueError(f'--vggt_whitening must be in [0, 1], got {whitening}')
     if depth_backend != 'vggt_omega' and feature_rank:
