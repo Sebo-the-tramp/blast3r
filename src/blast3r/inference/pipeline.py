@@ -31,7 +31,12 @@ def _load_offline_cache(path, metadata, device):
         print(f'>> Ignoring stale offline cache: {path}')
         return None
     print(f'>> Loading offline cache: {path}')
-    return todevice(payload['data'], device)
+    # Backend artifacts such as VGGT's fused pre-projection features are kept
+    # for later ablations, but the baseline reconstruction does not consume
+    # them.  Do not copy those large tensors back to the GPU on cache hits.
+    data = dict(payload['data'])
+    data.pop('backend_data', None)
+    return todevice(data, device)
 
 
 def _save_offline_cache(path, metadata, data):
@@ -70,14 +75,18 @@ def run_inference(views, depther, matcher,
                                 cache_metadata.get('depth'), device)
     if depth is None:
         with timer.time('depth_pred'):
-            conf, ptmap, multidepth, depth_mode = compute_pts3d_multidepths(
-                depther, raw_views)
-        _save_offline_cache(cache_paths.get('depth'), cache_metadata.get('depth'), {
+            conf, ptmap, multidepth, depth_mode, backend_data = compute_pts3d_multidepths(
+                depther, raw_views,
+                capture_backend_data=cache_paths.get('depth') is not None)
+        depth_data = {
             'conf': conf,
             'ptmap': ptmap,
             'multidepth': multidepth,
             'depth_mode': depth_mode,
-        })
+        }
+        if backend_data is not None:
+            depth_data['backend_data'] = backend_data
+        _save_offline_cache(cache_paths.get('depth'), cache_metadata.get('depth'), depth_data)
     else:
         conf = depth['conf']
         ptmap = depth['ptmap']
@@ -197,7 +206,7 @@ def run_online_inference(scene, sequence, depther, matcher,
                                                pin_memory=pin_memory)
 
             with timer.time('depth_pred'):
-                conf, ptmap, multidepth, depth_mode = to_cuda(
+                conf, ptmap, multidepth, depth_mode, _ = to_cuda(
                     compute_pts3d_multidepths(depther, view))
                 # The dense maps of every frame stay on the GPU for the whole run,
                 # so keep only the channels bundle adjustment will read.

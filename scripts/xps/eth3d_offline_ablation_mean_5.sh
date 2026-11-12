@@ -192,7 +192,8 @@ for SEED in 0 1 2 3 4; do
 
     if run_enabled vggt_alpha_beta; then
         # Monocular VGGT-Omega depth (one independent forward pass per image)
-        # with affine alpha/beta BA. Deliberately bypasses the offline cache.
+        # with affine alpha/beta BA. Cache depth and pre-projection features so
+        # all seeds and later projection ablations reuse the same backbone pass.
         RUN_OUTPUT="$VGGT_ALPHA_BETA_ROOT/seed_$SEED"
         if [[ "$EVAL_ONLY" != true ]]; then
             python "$(dirname "$0")/../run_offline.py" \
@@ -210,7 +211,8 @@ for SEED in 0 1 2 3 4; do
             --optim_P True \
             --optim_Z True \
             --seed "$SEED" \
-            --export_mode full
+            --export_mode full \
+            --use_cache
         fi
 
         python "$(dirname "$0")/../eval_offline.py" \

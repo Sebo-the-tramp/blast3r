@@ -73,6 +73,13 @@ def _cache_config(views, scene, seed, ckpt_depth, ckpt_match, size, force_ar,
         'device': str(device),
         'dtype': str(dtype),
     }
+    if depth_backend == 'vggt_omega':
+        depth_metadata.update({
+            'backend_data_schema': 1,
+            'feature_name': 'dense_head_fused_pre_projection',
+            'feature_dtype': 'float16',
+            'feature_stride': 4,
+        })
     init_metadata = {
         'format': OFFLINE_CACHE_FORMAT,
         'depth': depth_metadata,

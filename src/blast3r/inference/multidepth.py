@@ -12,11 +12,12 @@ from blast3r.utils.geometry import depthmap_to_pts3d
 
 
 @torch.inference_mode()
-def compute_pts3d_multidepths(model, views):
+def compute_pts3d_multidepths(model, views, capture_backend_data=False):
     assert not isinstance(model, types.LambdaType), 'the model must be loaded before reaching here'
 
     if getattr(model, 'depth_backend', 'blast3r') == 'vggt_omega':
-        return compute_vggt_omega_depths(model, views)
+        return compute_vggt_omega_depths(
+            model, views, capture_backend_data=capture_backend_data)
 
     imgs_shape = views['img'].shape
     assert imgs_shape[-3:] == (3, 16, 16), 'wrong format: images are not tokenized'
@@ -58,11 +59,11 @@ def compute_pts3d_multidepths(model, views):
         multidepth = [torch.cat((m[...,:1], torch.ones_like(m[...,:1]), m[...,1:]), -1) for m in multidepth]
     print('Found', multidepth[0].shape[-1], 'Z components')
 
-    return conf, pts3d, multidepth, depth_mode
+    return conf, pts3d, multidepth, depth_mode, None
 
 
 @torch.inference_mode()
-def compute_vggt_omega_depths(model, views):
+def compute_vggt_omega_depths(model, views, capture_backend_data=False):
     """Adapt VGGT-Omega outputs to BLASt3R's log-multidepth interface.
 
     Every view is evaluated independently as a one-frame VGGT-Omega batch. Its
@@ -81,10 +82,12 @@ def compute_vggt_omega_depths(model, views):
 
     print(f'>> Extracting monocular VGGT-Omega depthmaps for {len(images)} images ...')
     out_conf, pts3d, multidepth = [], [], []
+    native_depth, intrinsics_out, fused_features = [], [], []
     for image in images:
         # A separate call is intentional: this experiment tests VGGT-Omega as
         # a monocular depth prior, with no information exchange across views.
-        depth, conf, intrinsics = model.predict(image.unsqueeze(0))
+        depth, conf, intrinsics, features = model.predict(
+            image.unsqueeze(0), capture_features=capture_backend_data)
         depth_i = depth[0, 0, ..., 0].float().clamp_min(1e-8)
         conf_i = conf[0, 0].float()
         K_i = intrinsics[0, 0].float()
@@ -94,5 +97,23 @@ def compute_vggt_omega_depths(model, views):
         log_depth = depth_i.log()
         multidepth.append(torch.stack((log_depth, torch.ones_like(log_depth)), dim=-1))
 
+        if capture_backend_data:
+            native_depth.append(depth_i.cpu())
+            intrinsics_out.append(K_i.cpu())
+            fused_features.append(features[0, 0])
+
     print('Found 2 Z components (VGGT-Omega log-depth + constant)')
-    return out_conf, pts3d, multidepth, 'log_multidepth'
+    backend_data = None
+    if capture_backend_data:
+        backend_data = {
+            'schema': 1,
+            'feature_name': 'dense_head_fused_pre_projection',
+            'feature_layout': 'CHW',
+            'feature_dtype': 'float16',
+            'feature_stride': 4,
+            'features': fused_features,
+            'depth': native_depth,
+            'confidence': [value.cpu() for value in out_conf],
+            'intrinsics': intrinsics_out,
+        }
+    return out_conf, pts3d, multidepth, 'log_multidepth', backend_data

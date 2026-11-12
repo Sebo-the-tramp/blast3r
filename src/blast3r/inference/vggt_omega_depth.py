@@ -68,9 +68,38 @@ class VGGTOmegaDepth:
         print(f'>> Loaded VGGT-Omega depth backend from {checkpoint}')
 
     @torch.inference_mode()
-    def predict(self, images):
-        """Predict on ``images`` shaped (N, 3, H, W), in RGB [0, 1]."""
-        predictions = self.model(images.to(self.device))
+    def predict(self, images, capture_features=False):
+        """Predict on ``images`` shaped (N, 3, H, W), in RGB [0, 1].
+
+        When requested, also capture the dense head's fused 1/4-resolution,
+        256-channel input to the final depth projection.  It is transferred to
+        CPU in fp16 immediately so caching features for a scene does not retain
+        them on the GPU.
+        """
+        captured = []
+        handle = None
+        if capture_features:
+            def capture_projection_input(_module, args):
+                captured.append(args[0].detach().to(device='cpu', dtype=torch.float16))
+
+            handle = self.model.dense_head.proj.register_forward_pre_hook(
+                capture_projection_input)
+
+        try:
+            predictions = self.model(images.to(self.device))
+        finally:
+            if handle is not None:
+                handle.remove()
+
         _, intrinsics = self._encoding_to_camera(
             predictions['pose_enc'], predictions['images'].shape[-2:])
-        return predictions['depth'], predictions['depth_conf'], intrinsics
+        features = None
+        if capture_features:
+            if len(captured) != 1:
+                raise RuntimeError(
+                    f'expected one VGGT-Omega dense feature capture, got {len(captured)}')
+            batch_size, num_frames = predictions['depth'].shape[:2]
+            features = captured[0].reshape(
+                batch_size, num_frames, *captured[0].shape[1:])
+
+        return predictions['depth'], predictions['depth_conf'], intrinsics, features
