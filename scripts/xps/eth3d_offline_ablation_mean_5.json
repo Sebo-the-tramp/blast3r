@@ -34,5 +34,13 @@
     "blast3r_depth": "\\xmark",
     "vggt_feat_depth": "\\cmark",
     "optional": true
+  },
+  {
+    "label": "BLASt3R-matcher + VGGT-$\\Omega$ rank-15 feature depth",
+    "runs_dir": "vggt_rank15",
+    "ba": "\\cmark",
+    "blast3r_depth": "\\xmark",
+    "vggt_feat_depth": "\\cmark",
+    "optional": true
   }
 ]

@@ -41,35 +41,10 @@
     "blast3r_depth": "\\xmark",
     "vggt_feat_depth": "\\cmark",
     "optional": true
-  },
+  },  
   {
-    "label": "BLASt3R-matcher $r{=}0$ (run-1)",
-    "runs_dir": "vggt_r0_run1",
-    "ba": "\\cmark",
-    "blast3r_depth": "\\xmark",
-    "vggt_feat_depth": "\\cmark",
-    "separator_before": true,
-    "optional": true
-  },
-  {
-    "label": "BLASt3R-matcher $r{=}0$ (run-2)",
-    "runs_dir": "vggt_r0_run2",
-    "ba": "\\cmark",
-    "blast3r_depth": "\\xmark",
-    "vggt_feat_depth": "\\cmark",
-    "optional": true
-  },
-  {
-    "label": "BLASt3R-matcher $r{=}0$ (run-3)",
-    "runs_dir": "vggt_r0_run3",
-    "ba": "\\cmark",
-    "blast3r_depth": "\\xmark",
-    "vggt_feat_depth": "\\cmark",
-    "optional": true
-  },
-  {
-    "label": "BLASt3R-matcher $r{=}16$",
-    "runs_dir": "vggt_r16",
+    "label": "BLASt3R-matcher + VGGT-$\\Omega$ rank-15 feature depth",
+    "runs_dir": "vggt_rank15",
     "ba": "\\cmark",
     "blast3r_depth": "\\xmark",
     "vggt_feat_depth": "\\cmark",
