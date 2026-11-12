@@ -51,6 +51,30 @@
     "optional": true
   },
   {
+    "label": "BLASt3R-matcher + VGGT-$\\Omega$ rank-4 feature depth",
+    "runs_dir": "vggt_rank4",
+    "ba": "\\cmark",
+    "blast3r_depth": "\\xmark",
+    "vggt_feat_depth": "\\cmark",
+    "optional": true
+  },
+  {
+    "label": "BLASt3R-matcher + VGGT-$\\Omega$ rank-8 feature depth",
+    "runs_dir": "vggt_rank8",
+    "ba": "\\cmark",
+    "blast3r_depth": "\\xmark",
+    "vggt_feat_depth": "\\cmark",
+    "optional": true
+  },
+  {
+    "label": "BLASt3R-matcher + VGGT-$\\Omega$ 95\\% variance feature depth",
+    "runs_dir": "vggt_rho95",
+    "ba": "\\cmark",
+    "blast3r_depth": "\\xmark",
+    "vggt_feat_depth": "\\cmark",
+    "optional": true
+  },
+  {
     "label": "BLASt3R-matcher + VGGT-$\\Omega$ rank-15 feature depth",
     "runs_dir": "vggt_rank15",
     "ba": "\\cmark",

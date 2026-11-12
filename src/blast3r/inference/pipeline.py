@@ -82,6 +82,9 @@ def run_inference(views, depther, matcher,
                   denoise_depth=False,
                   vggt_feature_rank=0,
                   vggt_whitening=1.0,
+                  vggt_effective_rank=None,
+                  vggt_feature_rho=None,
+                  recompute_tracks=False,
                   on_init=None,
                   cache_paths=None,
                   cache_metadata=None,
@@ -96,9 +99,10 @@ def run_inference(views, depther, matcher,
     is_vggt = getattr(depther, 'depth_backend', 'blast3r') == 'vggt_omega'
     backend_data = None
     if is_vggt:
-        backend_data = _load_vggt_backend_cache(
-            cache_paths.get('depth'), cache_metadata.get('depth'),
-            require_features=vggt_feature_rank > 0)
+        with timer.time('depth_cache_load'):
+            backend_data = _load_vggt_backend_cache(
+                cache_paths.get('depth'), cache_metadata.get('depth'),
+                require_features=vggt_feature_rank > 0)
         if backend_data is None:
             with timer.time('depth_pred'):
                 backend_data = extract_vggt_omega_backend(
@@ -112,10 +116,12 @@ def run_inference(views, depther, matcher,
         with timer.time('depth_basis'):
             conf, ptmap, multidepth, depth_mode = vggt_omega_backend_to_multidepth(
                 backend_data, raw_views, feature_rank=vggt_feature_rank,
-                whitening=vggt_whitening)
+                whitening=vggt_whitening, effective_rank=vggt_effective_rank,
+                variance_rho=vggt_feature_rho)
     else:
-        depth = _load_offline_cache(cache_paths.get('depth'),
-                                    cache_metadata.get('depth'), device)
+        with timer.time('depth_cache_load'):
+            depth = _load_offline_cache(cache_paths.get('depth'),
+                                        cache_metadata.get('depth'), device)
     if not is_vggt and depth is None:
         with timer.time('depth_pred'):
             conf, ptmap, multidepth, depth_mode, backend_data = compute_pts3d_multidepths(
@@ -137,26 +143,36 @@ def run_inference(views, depther, matcher,
                        BA_args['optim_K'], BA_args['optim_P'])
              for i in range(n_imgs)]
 
-    initialized = _load_offline_cache(cache_paths.get('init'),
-                                      cache_metadata.get('init'), device)
+    with timer.time('init_cache_load'):
+        initialized = None if recompute_tracks else _load_offline_cache(
+            cache_paths.get('init'), cache_metadata.get('init'), device)
     if initialized is not None:
         track_data = initialized['track_data'].to(device)
         rigs = initialized['rigs'].to(device)
         pts3d = initialized['pts3d']
     else:
-        n_tokens, patch_size = get_ntokens(raw_views)
-        matcher = OnlineMatcher(matcher, n_imgs, n_tokens, patch_size, device)
-        if optim_memory:
-            toggle_memory_efficient_attention(True)
+        with timer.time('track_cache_load'):
+            cached_tracks = None if recompute_tracks else _load_offline_cache(
+                cache_paths.get('tracks'), cache_metadata.get('tracks'), device)
+        if cached_tracks is not None:
+            tracks = cached_tracks['tracks']
+        else:
+            n_tokens, patch_size = get_ntokens(raw_views)
+            matcher = OnlineMatcher(matcher, n_imgs, n_tokens, patch_size, device)
+            if optim_memory:
+                toggle_memory_efficient_attention(True)
 
-        with timer.time('flow_pred'):
-            tracks = compute_tracks(matcher, raw_views,
-                                    kpt_spacing=kpt_spacing,
-                                    remove_far_kpts=remove_far_kpts,
-                                    num_retrieved_images=num_retrieved_images,
-                                    retrieval_mode=retrieval_mode,
-                                    optim_memory=optim_memory)
-            print(f'>> Gathered {len(tracks)} tracks from {n_imgs} images')
+            with timer.time('flow_pred'):
+                tracks = compute_tracks(matcher, raw_views,
+                                        kpt_spacing=kpt_spacing,
+                                        remove_far_kpts=remove_far_kpts,
+                                        num_retrieved_images=num_retrieved_images,
+                                        retrieval_mode=retrieval_mode,
+                                        optim_memory=optim_memory)
+            if not recompute_tracks:
+                _save_offline_cache(
+                    cache_paths.get('tracks'), cache_metadata.get('tracks'), {'tracks': tracks})
+        print(f'>> Gathered {len(tracks)} tracks from {n_imgs} images')
 
         with timer.time('ba_init'):
             print('>> Gathering tracks data ...')
@@ -166,11 +182,12 @@ def run_inference(views, depther, matcher,
             rigs = init_poses_minspan_tree(views, track_data, depth_mode, mono_cam=mono_cam)
             pts3d = gather_pts3d(track_data, rigs)
 
-        _save_offline_cache(cache_paths.get('init'), cache_metadata.get('init'), {
-            'track_data': track_data.to('cpu'),
-            'rigs': rigs.to('cpu'),
-            'pts3d': pts3d.cpu(),
-        })
+        if not recompute_tracks:
+            _save_offline_cache(cache_paths.get('init'), cache_metadata.get('init'), {
+                'track_data': track_data.to('cpu'),
+                'rigs': rigs.to('cpu'),
+                'pts3d': pts3d.cpu(),
+            })
 
     if on_init is not None:
         on_init(views, rigs)

@@ -39,6 +39,9 @@ BA_ALPHA_BETA_ROOT="$EXPERIMENT_ROOT/ba_alpha_beta"
 BA_FULL_ROOT="$EXPERIMENT_ROOT/ba_full"
 VGGT_ALPHA_BETA_ROOT="$EXPERIMENT_ROOT/vggt_alpha_beta"
 VGGT_RANK1_ROOT="$EXPERIMENT_ROOT/vggt_rank1"
+VGGT_RANK4_ROOT="$EXPERIMENT_ROOT/vggt_rank4"
+VGGT_RANK8_ROOT="$EXPERIMENT_ROOT/vggt_rank8"
+VGGT_RHO95_ROOT="$EXPERIMENT_ROOT/vggt_rho95"
 VGGT_RANK15_ROOT="$EXPERIMENT_ROOT/vggt_rank15"
 
 CKPT_MATCH="naver/blast3r-matcher"
@@ -55,7 +58,10 @@ RUNS=(
     # ba_full
     # vggt_alpha_beta
     vggt_rank1
-    # vggt_rank15
+    vggt_rank4
+    vggt_rank8
+    vggt_rho95
+    vggt_rank15
 )
 
 run_enabled() {
@@ -76,8 +82,7 @@ for SEED in 0; do
             --mono_cam \
             --max_iters 0 \
             --seed "$SEED" \
-            --export_mode full \
-                --use_cache
+            --export_mode full
         fi
 
         python "$(dirname "$0")/../eval_offline.py" \
@@ -103,8 +108,7 @@ for SEED in 0; do
             --optim_P True \
             --optim_Z False \
             --seed "$SEED" \
-            --export_mode full \
-                --use_cache
+            --export_mode full
         fi
 
         python "$(dirname "$0")/../eval_offline.py" \
@@ -130,8 +134,7 @@ for SEED in 0; do
             --optim_P True \
             --optim_Z False \
             --seed "$SEED" \
-            --export_mode full \
-                --use_cache
+            --export_mode full
         fi
 
         python "$(dirname "$0")/../eval_offline.py" \
@@ -157,8 +160,7 @@ for SEED in 0; do
             --optim_P True \
             --optim_Z True \
             --seed "$SEED" \
-            --export_mode full \
-                --use_cache
+            --export_mode full
         fi
 
         python "$(dirname "$0")/../eval_offline.py" \
@@ -185,8 +187,7 @@ for SEED in 0; do
             --optim_P True \
             --optim_Z True \
             --seed "$SEED" \
-            --export_mode full \
-                --use_cache
+            --export_mode full
         fi
 
         python "$(dirname "$0")/../eval_offline.py" \
@@ -214,8 +215,7 @@ for SEED in 0; do
             --optim_P True \
             --optim_Z True \
             --seed "$SEED" \
-            --export_mode full \
-            --use_cache 
+            --export_mode full
         fi
 
         python "$(dirname "$0")/../eval_offline.py" \
@@ -232,19 +232,19 @@ for SEED in 0; do
             --ckpt_match "$CKPT_MATCH" \
             --ckpt_depth "$CKPT_VGGT_OMEGA" \
             --depth_backend vggt_omega \
-            --vggt_feature_rank 1 \
+            --vggt_feature_rank 15 \
+            --vggt_effective_rank 1 \
             --vggt_whitening 1 \
             --size 512 \
             --max_iters 100 \
             --weight_z 1e-4 \
-            --n_zcfs 3 \
+            --n_zcfs 17 \
             --mono_cam \
             --optim_K True \
             --optim_P True \
             --optim_Z True \
             --seed "$SEED" \
-            --export_mode full \
-            --use_cache
+            --export_mode full
         fi
 
         python "$(dirname "$0")/../eval_offline.py" \
@@ -272,8 +272,94 @@ for SEED in 0; do
             --optim_P True \
             --optim_Z True \
             --seed "$SEED" \
-            --export_mode full \
-            --use_cache
+            --export_mode full
+        fi
+
+        python "$(dirname "$0")/../eval_offline.py" \
+            --gt_dir "$ETH3D" \
+            --preds_dir "$RUN_OUTPUT"
+    fi
+
+    if run_enabled vggt_rank4; then
+        RUN_OUTPUT="$VGGT_RANK4_ROOT/seed_$SEED"
+        if [[ "$EVAL_ONLY" != true ]]; then
+            python "$(dirname "$0")/../run_offline.py" \
+            --images "$ETH3D"/*/ \
+            --output "$RUN_OUTPUT" \
+            --ckpt_match "$CKPT_MATCH" \
+            --ckpt_depth "$CKPT_VGGT_OMEGA" \
+            --depth_backend vggt_omega \
+            --vggt_feature_rank 15 \
+            --vggt_effective_rank 4 \
+            --vggt_whitening 1 \
+            --size 512 \
+            --max_iters 100 \
+            --weight_z 1e-4 \
+            --n_zcfs 17 \
+            --mono_cam \
+            --optim_K True \
+            --optim_P True \
+            --optim_Z True \
+            --seed "$SEED" \
+            --export_mode full
+        fi
+
+        python "$(dirname "$0")/../eval_offline.py" \
+            --gt_dir "$ETH3D" \
+            --preds_dir "$RUN_OUTPUT"
+    fi
+
+    if run_enabled vggt_rank8; then
+        RUN_OUTPUT="$VGGT_RANK8_ROOT/seed_$SEED"
+        if [[ "$EVAL_ONLY" != true ]]; then
+            python "$(dirname "$0")/../run_offline.py" \
+            --images "$ETH3D"/*/ \
+            --output "$RUN_OUTPUT" \
+            --ckpt_match "$CKPT_MATCH" \
+            --ckpt_depth "$CKPT_VGGT_OMEGA" \
+            --depth_backend vggt_omega \
+            --vggt_feature_rank 15 \
+            --vggt_effective_rank 8 \
+            --vggt_whitening 1 \
+            --size 512 \
+            --max_iters 100 \
+            --weight_z 1e-4 \
+            --n_zcfs 17 \
+            --mono_cam \
+            --optim_K True \
+            --optim_P True \
+            --optim_Z True \
+            --seed "$SEED" \
+            --export_mode full
+        fi
+
+        python "$(dirname "$0")/../eval_offline.py" \
+            --gt_dir "$ETH3D" \
+            --preds_dir "$RUN_OUTPUT"
+    fi
+
+    if run_enabled vggt_rho95; then
+        RUN_OUTPUT="$VGGT_RHO95_ROOT/seed_$SEED"
+        if [[ "$EVAL_ONLY" != true ]]; then
+            python "$(dirname "$0")/../run_offline.py" \
+            --images "$ETH3D"/*/ \
+            --output "$RUN_OUTPUT" \
+            --ckpt_match "$CKPT_MATCH" \
+            --ckpt_depth "$CKPT_VGGT_OMEGA" \
+            --depth_backend vggt_omega \
+            --vggt_feature_rank 15 \
+            --vggt_feature_rho 0.95 \
+            --vggt_whitening 1 \
+            --size 512 \
+            --max_iters 100 \
+            --weight_z 1e-4 \
+            --n_zcfs 17 \
+            --mono_cam \
+            --optim_K True \
+            --optim_P True \
+            --optim_Z True \
+            --seed "$SEED" \
+            --export_mode full
         fi
 
         python "$(dirname "$0")/../eval_offline.py" \
@@ -321,6 +407,24 @@ fi
 if run_enabled vggt_rank1; then
     python "$(dirname "$0")/../aggregate_offline_runs.py" \
         --runs_dir "$VGGT_RANK1_ROOT" \
+        --expected_runs 0
+fi
+
+if run_enabled vggt_rank4; then
+    python "$(dirname "$0")/../aggregate_offline_runs.py" \
+        --runs_dir "$VGGT_RANK4_ROOT" \
+        --expected_runs 0
+fi
+
+if run_enabled vggt_rank8; then
+    python "$(dirname "$0")/../aggregate_offline_runs.py" \
+        --runs_dir "$VGGT_RANK8_ROOT" \
+        --expected_runs 0
+fi
+
+if run_enabled vggt_rho95; then
+    python "$(dirname "$0")/../aggregate_offline_runs.py" \
+        --runs_dir "$VGGT_RHO95_ROOT" \
         --expected_runs 0
 fi
 

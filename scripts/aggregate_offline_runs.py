@@ -213,4 +213,13 @@ python scripts/aggregate_offline_runs.py \
   --latex_manifest scripts/xps/eth3d_offline_ablation_mean_5.json \
   --latex_runs_root out/eth3d/ablation \
   --latex_output out/eth3d/ablation/ablation_table.ltx
+
+
+  OR THIS for pointclouds
+.venv/bin/python scripts/eval_offline.py \
+  --gt_dir data/eth3d \
+  --preds_dir out/eth3d/ablation/vggt_rank15/seed_0 \
+  --eval_pointcloud \
+  --eth3d_scans_dir data/eth3d_scans \
+  --eth3d_evaluator tools/eth3d_multi_view_evaluation/build/ETH3DMultiViewEvaluation
 """

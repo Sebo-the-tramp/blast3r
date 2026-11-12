@@ -21,6 +21,7 @@ from blast3r.inference.timing import timer
 
 OFFLINE_CACHE_FORMAT = 1
 DEPTH_CACHE_SCHEMA = 1
+TRACK_CACHE_SCHEMA = 1
 
 
 def arg_parser():
@@ -31,8 +32,14 @@ def arg_parser():
                         help='number of PCA-whitened VGGT feature maps used as depth bases')
     parser.add_argument('--vggt_whitening', type=float, default=1.0,
                         help='VGGT PCA whitening shrinkage (0=PCA, 1=full whitening)')
+    parser.add_argument('--vggt_effective_rank', type=int,
+                        help='keep this many basis maps and zero the remaining maps')
+    parser.add_argument('--vggt_feature_rho', type=float,
+                        help='per-image cumulative PCA variance target; zero later maps')
     parser.add_argument('--use_cache', action='store_true',
                         help='reuse shared depths and seed-specific pre-BA initialization')
+    parser.add_argument('--recompute_tracks', action='store_true',
+                        help='with cached depths, recompute tracks and BA initialization')
     parser.add_argument('--cache_dir', default='.cache/blast3r/offline',
                         help='offline cache root (used only with --use_cache)')
     return parser
@@ -85,6 +92,23 @@ def _cache_config(views, scene, seed, ckpt_depth, ckpt_match, size, force_ar,
             'feature_dtype': 'float16',
             'feature_stride': 4,
         })
+    track_metadata = {
+        'format': OFFLINE_CACHE_FORMAT,
+        'schema': TRACK_CACHE_SCHEMA,
+        'scene': str(scene),
+        'images': _image_fingerprints(views),
+        'ckpt_match': str(ckpt_match),
+        'size': size,
+        'force_ar': force_ar,
+        'seed': seed,
+        'kpt_spacing': options.get('kpt_spacing', 8),
+        'remove_far_kpts': options.get('remove_far_kpts', True),
+        'retrieval_mode': options.get('retrieval_mode', 'coreset_fps_30'),
+        'num_retrieved_images': options.get('num_retrieved_images', 40),
+        'optim_memory': options.get('optim_memory', False),
+        'device': str(device),
+        'dtype': str(dtype),
+    }
     init_metadata = {
         'format': OFFLINE_CACHE_FORMAT,
         'depth': depth_metadata,
@@ -110,12 +134,16 @@ def _cache_config(views, scene, seed, ckpt_depth, ckpt_match, size, force_ar,
             'kind': 'pca_whitened_fused_features',
             'rank': options.get('vggt_feature_rank', 0),
             'shrinkage': options.get('vggt_whitening', 1.0),
+            'effective_rank': options.get('vggt_effective_rank'),
+            'variance_rho': options.get('vggt_feature_rho'),
         }
     return ({
         'depth': _cache_file(cache_dir, f'depth/{depth_backend}', scene, depth_metadata),
+        'tracks': _cache_file(cache_dir, 'tracks', scene, track_metadata, seed=seed),
         'init': _cache_file(cache_dir, 'init', scene, init_metadata, seed=seed),
     }, {
         'depth': depth_metadata,
+        'tracks': track_metadata,
         'init': init_metadata,
     })
 
@@ -126,6 +154,8 @@ def run(images, ckpt_depth, ckpt_match, size, force_ar, output, export_mode, nam
         **options):
     feature_rank = options.get('vggt_feature_rank', 0)
     whitening = options.get('vggt_whitening', 1.0)
+    effective_rank = options.get('vggt_effective_rank')
+    feature_rho = options.get('vggt_feature_rho')
     if feature_rank < 0 or feature_rank > 256:
         raise ValueError(f'--vggt_feature_rank must be in [0, 256], got {feature_rank}')
     supported_feature_ranks = {0, 1, 14, 15}
@@ -136,8 +166,19 @@ def run(images, ckpt_depth, ckpt_match, size, force_ar, output, export_mode, nam
             f'{sorted(supported_feature_ranks)}')
     if not 0 <= whitening <= 1:
         raise ValueError(f'--vggt_whitening must be in [0, 1], got {whitening}')
+    if effective_rank is not None and not 0 <= effective_rank <= feature_rank:
+        raise ValueError(
+            f'--vggt_effective_rank must be in [0, {feature_rank}], got {effective_rank}')
+    if feature_rho is not None and not 0 < feature_rho <= 1:
+        raise ValueError(f'--vggt_feature_rho must be in (0, 1], got {feature_rho}')
+    if effective_rank is not None and feature_rho is not None:
+        raise ValueError('--vggt_effective_rank and --vggt_feature_rho are mutually exclusive')
+    if feature_rank == 0 and (effective_rank is not None or feature_rho is not None):
+        raise ValueError('VGGT basis masking requires --vggt_feature_rank > 0')
     if depth_backend != 'vggt_omega' and feature_rank:
         raise ValueError('--vggt_feature_rank requires --depth_backend vggt_omega')
+    if depth_backend != 'vggt_omega' and (effective_rank is not None or feature_rho is not None):
+        raise ValueError('VGGT basis masking requires --depth_backend vggt_omega')
     dataset = load_dataset(images, size=size, force_ar=force_ar, name=name)
     depther = load_depth_model(ckpt_depth, device=device, dtype=dtype, backend=depth_backend)
     matcher = load_match_model(ckpt_match, device=device, dtype=dtype)

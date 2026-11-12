@@ -19,14 +19,16 @@ from .vggt_features import pca_whiten_feature_map
 @torch.inference_mode()
 def compute_pts3d_multidepths(model, views, capture_backend_data=False,
                               backend_data=None, vggt_feature_rank=0,
-                              vggt_whitening=1.0):
+                              vggt_whitening=1.0, vggt_effective_rank=None,
+                              vggt_feature_rho=None):
     assert not isinstance(model, types.LambdaType), 'the model must be loaded before reaching here'
 
     if getattr(model, 'depth_backend', 'blast3r') == 'vggt_omega':
         return compute_vggt_omega_depths(
             model, views, capture_backend_data=capture_backend_data,
             backend_data=backend_data, feature_rank=vggt_feature_rank,
-            whitening=vggt_whitening)
+            whitening=vggt_whitening, effective_rank=vggt_effective_rank,
+            variance_rho=vggt_feature_rho)
 
     imgs_shape = views['img'].shape
     assert imgs_shape[-3:] == (3, 16, 16), 'wrong format: images are not tokenized'
@@ -73,7 +75,8 @@ def compute_pts3d_multidepths(model, views, capture_backend_data=False,
 
 @torch.inference_mode()
 def compute_vggt_omega_depths(model, views, capture_backend_data=False,
-                              backend_data=None, feature_rank=0, whitening=1.0):
+                              backend_data=None, feature_rank=0, whitening=1.0,
+                              effective_rank=None, variance_rho=None):
     """Adapt VGGT-Omega outputs to BLASt3R's log-multidepth interface.
 
     Every view is evaluated independently as a one-frame VGGT-Omega batch. The
@@ -86,7 +89,8 @@ def compute_vggt_omega_depths(model, views, capture_backend_data=False,
             capture_features=capture_backend_data or feature_rank > 0)
 
     result = vggt_omega_backend_to_multidepth(
-        backend_data, views, feature_rank=feature_rank, whitening=whitening)
+        backend_data, views, feature_rank=feature_rank, whitening=whitening,
+        effective_rank=effective_rank, variance_rho=variance_rho)
     return *result, backend_data
 
 
@@ -131,7 +135,8 @@ def extract_vggt_omega_backend(model, views, capture_features=True):
 
 @torch.inference_mode()
 def vggt_omega_backend_to_multidepth(backend_data, views, feature_rank=0,
-                                     whitening=1.0):
+                                     whitening=1.0, effective_rank=None,
+                                     variance_rho=None):
     """Build full-resolution depth bases strictly downstream of the raw cache."""
     shapes = [tuple(map(int, shape)) for shape in views['true_shape'].tolist()]
 
@@ -164,9 +169,16 @@ def vggt_omega_backend_to_multidepth(backend_data, views, feature_rank=0,
                 raise ValueError(
                     f'cached VGGT feature has shape {tuple(feature.shape)}, '
                     f'expected {expected_feature_shape}')
-        basis = pca_whiten_feature_map(
+        basis, basis_info = pca_whiten_feature_map(
             feature if feature_rank else torch.empty((256, 1, 1), dtype=torch.float16),
-            feature_rank, shape, shrinkage=whitening, device=device)
+            feature_rank, shape, shrinkage=whitening, device=device,
+            effective_rank=effective_rank, variance_rho=variance_rho)
+        if feature_rank:
+            rho_note = (f', rho rank={basis_info["rho_rank"]}'
+                        if variance_rho is not None else '')
+            print(f'VGGT basis image {index}: effective rank={basis_info["effective_rank"]}'
+                  f'/{feature_rank}, retained variance={basis_info["variance"]:.3%}'
+                  f'{rho_note}')
 
         # if feature_rank:  # log-depth + independently scaled signed basis maps
         #     depth_viz = (log_depth - log_depth.amin()) / (log_depth.amax() - log_depth.amin()).clamp_min(1e-8)
