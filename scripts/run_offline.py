@@ -27,6 +27,10 @@ def arg_parser():
     parser = base_parser('BLASt3R offline reconstruction')
     parser.add_argument('--depth_backend', choices=('blast3r', 'vggt_omega'), default='blast3r',
                         help='model used for depth and focal initialization')
+    parser.add_argument('--vggt_feature_rank', type=int, default=0,
+                        help='number of PCA-whitened VGGT feature maps used as depth bases')
+    parser.add_argument('--vggt_whitening', type=float, default=1.0,
+                        help='VGGT PCA whitening shrinkage (0=PCA, 1=full whitening)')
     parser.add_argument('--use_cache', action='store_true',
                         help='reuse shared depths and seed-specific pre-BA initialization')
     parser.add_argument('--cache_dir', default='.cache/blast3r/offline',
@@ -61,8 +65,9 @@ def _cache_config(views, scene, seed, ckpt_depth, ckpt_match, size, force_ar,
                   device, dtype, options, cache_dir):
     depth_metadata = {
         'format': OFFLINE_CACHE_FORMAT,
-        # Cache the normalized depth representation consumed by the pipeline,
-        # not backend-private model outputs. Backends use separate namespaces.
+        # BLASt3R caches its normalized depth representation. VGGT-Omega uses
+        # the same backend-specific namespace for its raw, rank-independent
+        # depth/confidence/intrinsics/fused-feature artifact.
         'schema': DEPTH_CACHE_SCHEMA,
         'backend': depth_backend,
         'scene': str(scene),
@@ -96,6 +101,16 @@ def _cache_config(views, scene, seed, ckpt_depth, ckpt_match, size, force_ar,
         'optim_K': any(options.get('optim_K', [True])),
         'optim_P': any(options.get('optim_P', [True])),
     }
+    if depth_backend == 'vggt_omega':
+        # These affect sampled depths, poses and BA initialization, but not the
+        # expensive raw VGGT artifact above.  Different basis ablations therefore
+        # share one VGGT cache while receiving distinct initialization caches.
+        init_metadata['vggt_depth_basis'] = {
+            'schema': 1,
+            'kind': 'pca_whitened_fused_features',
+            'rank': options.get('vggt_feature_rank', 0),
+            'shrinkage': options.get('vggt_whitening', 1.0),
+        }
     return ({
         'depth': _cache_file(cache_dir, f'depth/{depth_backend}', scene, depth_metadata),
         'init': _cache_file(cache_dir, 'init', scene, init_metadata, seed=seed),
@@ -109,6 +124,14 @@ def run(images, ckpt_depth, ckpt_match, size, force_ar, output, export_mode, nam
         skip_existing=False, skip_failures=False, seed=0, device='cuda', dtype=torch.float32,
         use_cache=False, cache_dir='.cache/blast3r/offline', depth_backend='blast3r',
         **options):
+    feature_rank = options.get('vggt_feature_rank', 0)
+    whitening = options.get('vggt_whitening', 1.0)
+    if feature_rank < 0 or feature_rank > 256:
+        raise ValueError(f'--vggt_feature_rank must be in [0, 256], got {feature_rank}')
+    if not 0 <= whitening <= 1:
+        raise ValueError(f'--vggt_whitening must be in [0, 1], got {whitening}')
+    if depth_backend != 'vggt_omega' and feature_rank:
+        raise ValueError('--vggt_feature_rank requires --depth_backend vggt_omega')
     dataset = load_dataset(images, size=size, force_ar=force_ar, name=name)
     depther = load_depth_model(ckpt_depth, device=device, dtype=dtype, backend=depth_backend)
     matcher = load_match_model(ckpt_match, device=device, dtype=dtype)

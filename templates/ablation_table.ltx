@@ -1,7 +1,7 @@
 % One row per manifest entry; the aggregator substitutes the metric fields.
 \begin{table*}[t]
 \centering
-\caption{Mean relative-pose AUC on ETH3D (13 scenes). VGGT-$\Omega$ is run independently on each image; the current VGGT row optimizes affine depth parameters only. All rows share BLASt3R tracks. BLASt3R initialization follows the BA depth basis, using native depth for the no-depth baselines. Pending entries are blank; failed scenes score zero.}
+\caption{Mean relative-pose AUC on ETH3D (13 scenes). VGGT-$\Omega$ is run independently on each image; feature-depth BA uses a rank-15 PCA-whitened basis. All rows share BLASt3R tracks. BLASt3R initialization follows the BA depth basis, using native depth for the no-depth baselines. Pending entries are blank; failed scenes score zero.}
 \label{tab:ablation-pose-optimized-variables}
 \begin{tabular}{@{}l ccc ccc c@{}}
 \toprule

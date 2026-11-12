@@ -16,7 +16,8 @@ from blast3r.utils.geometry import depthmap_to_pts3d
 from .denoise import denoise_views
 from .engine import bundle_adjustment, used_depth_channels
 from .loading import get_ntokens
-from .multidepth import compute_pts3d_multidepths
+from .multidepth import (compute_pts3d_multidepths, extract_vggt_omega_backend,
+                         vggt_omega_backend_to_multidepth)
 from .results import get_at, init_view
 from .rigs import gather_pts3d, init_last_pose, init_poses_minspan_tree, update_views
 from .timing import timer
@@ -37,6 +38,25 @@ def _load_offline_cache(path, metadata, device):
     data = dict(payload['data'])
     data.pop('backend_data', None)
     return todevice(data, device)
+
+
+def _load_vggt_backend_cache(path, metadata, require_features=False):
+    """Load the rank-independent raw VGGT artifact without moving it to GPU."""
+    if path is None or not Path(path).is_file():
+        return None
+    payload = torch.load(path, map_location='cpu', weights_only=False)
+    if payload.get('metadata') != metadata:
+        print(f'>> Ignoring stale offline cache: {path}')
+        return None
+    backend_data = payload.get('data', {}).get('backend_data')
+    if backend_data is None:
+        print(f'>> Ignoring VGGT cache without backend data: {path}')
+        return None
+    if require_features and not backend_data.get('features'):
+        print(f'>> Ignoring VGGT cache without fused features: {path}')
+        return None
+    print(f'>> Loading offline cache: {path}')
+    return backend_data
 
 
 def _save_offline_cache(path, metadata, data):
@@ -60,6 +80,8 @@ def run_inference(views, depther, matcher,
                   device='cuda',
                   optim_memory=False,
                   denoise_depth=False,
+                  vggt_feature_rank=0,
+                  vggt_whitening=1.0,
                   on_init=None,
                   cache_paths=None,
                   cache_metadata=None,
@@ -71,23 +93,41 @@ def run_inference(views, depther, matcher,
     n_imgs = len(views['img'])
     raw_views = todevice(views, device)
 
-    depth = _load_offline_cache(cache_paths.get('depth'),
-                                cache_metadata.get('depth'), device)
-    if depth is None:
+    is_vggt = getattr(depther, 'depth_backend', 'blast3r') == 'vggt_omega'
+    backend_data = None
+    if is_vggt:
+        backend_data = _load_vggt_backend_cache(
+            cache_paths.get('depth'), cache_metadata.get('depth'),
+            require_features=vggt_feature_rank > 0)
+        if backend_data is None:
+            with timer.time('depth_pred'):
+                backend_data = extract_vggt_omega_backend(
+                    depther, raw_views,
+                    capture_features=(cache_paths.get('depth') is not None or
+                                      vggt_feature_rank > 0))
+            # Persist the raw rank-independent artifact before any eigendecomposition.
+            _save_offline_cache(
+                cache_paths.get('depth'), cache_metadata.get('depth'),
+                {'backend_data': backend_data})
+        with timer.time('depth_basis'):
+            conf, ptmap, multidepth, depth_mode = vggt_omega_backend_to_multidepth(
+                backend_data, raw_views, feature_rank=vggt_feature_rank,
+                whitening=vggt_whitening)
+    else:
+        depth = _load_offline_cache(cache_paths.get('depth'),
+                                    cache_metadata.get('depth'), device)
+    if not is_vggt and depth is None:
         with timer.time('depth_pred'):
             conf, ptmap, multidepth, depth_mode, backend_data = compute_pts3d_multidepths(
                 depther, raw_views,
-                capture_backend_data=cache_paths.get('depth') is not None)
-        depth_data = {
+                capture_backend_data=False)
+        _save_offline_cache(cache_paths.get('depth'), cache_metadata.get('depth'), {
             'conf': conf,
             'ptmap': ptmap,
             'multidepth': multidepth,
             'depth_mode': depth_mode,
-        }
-        if backend_data is not None:
-            depth_data['backend_data'] = backend_data
-        _save_offline_cache(cache_paths.get('depth'), cache_metadata.get('depth'), depth_data)
-    else:
+        })
+    elif not is_vggt:
         conf = depth['conf']
         ptmap = depth['ptmap']
         multidepth = depth['multidepth']

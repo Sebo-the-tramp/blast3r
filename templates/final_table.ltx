@@ -1,0 +1,70 @@
+i\begin{table*}[t]
+\centering
+\caption{Point-cloud accuracy on ETH3D (mean over 13 scenes), ScanNet++,
+and 7Scenes. VGGT-$\Omega$ uses a rank-16 feature basis. All rows share
+BLASt3R tracks. BLASt3R initialization follows the BA depth basis, using
+native depth for the no-depth baselines. F1 is reported at the indicated
+distance thresholds. Pending entries are marked with --; failed scenes
+score zero. Best results in each column are bold.}
+\label{tab:eth3d_scannetpp_7scenes}
+\small
+\setlength{\tabcolsep}{2pt}
+\makebox[\textwidth][c]{%
+\begin{tabular}{@{}l *{6}{c} @{\hspace{10pt}} *{6}{c} @{\hspace{10pt}} *{6}{c}@{}}
+\toprule
+& \multicolumn{6}{c}{\textbf{ETH3D}}
+& \multicolumn{6}{c}{\textbf{ScanNet++}}
+& \multicolumn{6}{c}{\textbf{Hypersim}} \\
+\cmidrule(lr){2-7} \cmidrule(lr){8-13} \cmidrule(l){14-19}
+& \textbf{Pose} & \multicolumn{4}{c}{\textbf{Depth F1} (\%)} &
+& \textbf{Pose} & \multicolumn{4}{c}{\textbf{Depth F1} (\%)} &
+& \textbf{Pose} & \multicolumn{4}{c}{\textbf{Depth F1} (\%)} & \\
+\cmidrule(lr){2-2}  \cmidrule(lr){3-6}
+\cmidrule(lr){8-8}  \cmidrule(lr){9-12}
+\cmidrule(lr){14-14} \cmidrule(lr){15-18}
+\textbf{Method}
+& 5$^\circ$ & 2\,cm & 5\,cm & 10\,cm & 20\,cm & \textbf{Time}
+& 5$^\circ$ & 2\,cm & 5\,cm & 10\,cm & 20\,cm & \textbf{Time}
+& 5$^\circ$ & 2\,cm & 5\,cm & 10\,cm & 20\,cm & \textbf{Time} \\
+\midrule
+\multicolumn{19}{@{}l}{\textit{BLASt3R / BA type}} \\
+\addlinespace[2pt]
+No
+& -- & -- & -- & -- & -- & --
+& -- & -- & -- & -- & -- & --
+& -- & -- & -- & -- & -- & -- \\
+2D
+& -- & -- & -- & -- & -- & --
+& -- & -- & -- & -- & -- & --
+& -- & -- & -- & -- & -- & -- \\
+3D (fixed depth)
+& -- & -- & -- & -- & -- & --
+& -- & -- & -- & -- & -- & --
+& -- & -- & -- & -- & -- & -- \\
+3D ($\alpha_{n,1},\beta_n$ free)
+& -- & -- & -- & -- & -- & --
+& -- & -- & -- & -- & -- & --
+& -- & -- & -- & -- & -- & -- \\
+3D (full depth)
+& -- & -- & -- & -- & -- & --
+& -- & -- & -- & -- & -- & --
+& -- & -- & -- & -- & -- & -- \\
+\midrule
+\multicolumn{19}{@{}l}{\textit{Ours}} \\
+\addlinespace[2pt]
+$r=0$
+& -- & -- & -- & -- & -- & --
+& -- & -- & -- & -- & -- & --
+& -- & -- & -- & -- & -- & -- \\
+$\rho=0.95$
+& -- & -- & -- & -- & -- & --
+& -- & -- & -- & -- & -- & --
+& -- & -- & -- & -- & -- & -- \\
+\todo{$r=16$}
+& -- & -- & -- & -- & -- & --
+& -- & -- & -- & -- & -- & --
+& -- & -- & -- & -- & -- & -- \\
+\bottomrule
+\end{tabular}%
+}
+\end{table*}

@@ -13,6 +13,7 @@ dependencies = [
     "evo",
     "gradio",
     "huggingface-hub",
+    "matplotlib",
     "numpy",
     "opencv-python",
     "pandas",
