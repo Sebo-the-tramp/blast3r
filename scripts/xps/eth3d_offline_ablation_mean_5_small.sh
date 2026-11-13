@@ -56,12 +56,12 @@ RUNS=(
     # ba_fixed_depth
     # ba_alpha_beta
     # ba_full
-    # vggt_alpha_beta
-    vggt_rank1
-    vggt_rank4
-    vggt_rank8
-    vggt_rho95
-    vggt_rank15
+    vggt_alpha_beta
+    # vggt_rank1
+    # vggt_rank4
+    # vggt_rank8
+    # vggt_rho95
+    # vggt_rank15
 )
 
 run_enabled() {

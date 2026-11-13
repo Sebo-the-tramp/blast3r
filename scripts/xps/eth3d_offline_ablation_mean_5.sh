@@ -51,16 +51,16 @@ CKPT_VGGT_OMEGA="${CKPT_VGGT_OMEGA:-/fast-storage/huggingface/hub/models--facebo
 # Enable configurations by leaving their names uncommented. Comment out any
 # configuration you want to skip.
 RUNS=(
-    # no_ba
-    # ba_2d
-    # ba_fixed_depth
-    # ba_alpha_beta
-    # ba_full
+    no_ba
+    ba_2d
+    ba_fixed_depth
+    ba_alpha_beta
+    ba_full
     # vggt_alpha_beta
     # vggt_rank1
-    vggt_rank4
-    vggt_rank8
-    vggt_rho95
+    # vggt_rank4
+    # vggt_rank8
+    # vggt_rho95
     # vggt_rank15
 )
 
@@ -198,8 +198,7 @@ for SEED in 0; do
 
     if run_enabled vggt_alpha_beta; then
         # Monocular VGGT-Omega depth (one independent forward pass per image)
-        # with affine alpha/beta BA. Cache depth and pre-projection features so
-        # all seeds and later projection ablations reuse the same backbone pass.
+        # with affine alpha/beta BA, recomputed end to end for fair timing.
         RUN_OUTPUT="$VGGT_ALPHA_BETA_ROOT/seed_$SEED"
         if [[ "$EVAL_ONLY" != true ]]; then
             python "$(dirname "$0")/../run_offline.py" \

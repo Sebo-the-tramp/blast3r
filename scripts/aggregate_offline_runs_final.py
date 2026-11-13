@@ -4,8 +4,9 @@
 """Fill the final multi-dataset table from per-seed evaluation outputs.
 
 The current ETH3D layout is ``<runs-root>/eth3d/ablation/<method>/seed_N``.
-ScanNet++ and Hypersim use the same layout when their results become available;
-missing datasets or metrics are left as ``--`` in the table.
+ScanNet++ uses the same layout when its results become available; missing
+datasets or metrics are left as ``--`` in the table. Hypersim is omitted from
+the default final table.
 """
 
 import argparse
@@ -18,7 +19,6 @@ import torch
 DATASETS = (
     {'name': 'ETH3D', 'directory': 'eth3d', 'f1_file': 'eth3d_pointcloud.csv'},
     {'name': 'ScanNet++', 'directory': 'scannetpp', 'f1_file': 'depth.csv'},
-    {'name': 'Hypersim', 'directory': 'hypersim', 'f1_file': 'depth.csv'},
 )
 
 # These rows correspond to the two ablation groups in final_table.ltx.
@@ -32,6 +32,8 @@ BA_ROWS = (
 OURS_ROWS = (
     (r'$r=0$', 'vggt_alpha_beta'),
     (r'$r=1$', 'vggt_rank1'),
+    (r'$r=4$', 'vggt_rank4'),
+    (r'$r=8$', 'vggt_rank8'),
     (r'$\rho=0.95$', 'vggt_rho95'),
     (r'$r=16$', 'vggt_rank15'),
 )
@@ -101,7 +103,7 @@ def average_time(run_dir):
 def collect_row_metrics(runs_root, method):
     datasets = []
     for dataset in DATASETS:
-        run_dir = runs_root / dataset['directory'] / 'ablation' / method
+        run_dir = runs_root / dataset['directory'] / 'ablation_version_2' / method
         pose = average_pose(run_dir)
         f1 = average_f1(run_dir, dataset['f1_file'])
         timing = average_time(run_dir)

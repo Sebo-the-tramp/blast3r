@@ -14,11 +14,11 @@ SEED=0
 
 # Keep this list in sync with RUNS in eth3d_offline_ablation_mean_5.sh.
 RUNS=(
-    # no_ba
-    # ba_2d
-    # ba_fixed_depth
-    # ba_alpha_beta
-    # ba_full
+    no_ba
+    ba_2d
+    ba_fixed_depth
+    ba_alpha_beta
+    ba_full
     vggt_alpha_beta  # enable after changing that run to --export_mode full
     # vggt_rank1
     # vggt_rank4

@@ -222,4 +222,12 @@ python scripts/aggregate_offline_runs.py \
   --eval_pointcloud \
   --eth3d_scans_dir data/eth3d_scans \
   --eth3d_evaluator tools/eth3d_multi_view_evaluation/build/ETH3DMultiViewEvaluation
+
+.venv/bin/python scripts/eval_offline.py \
+  --gt_dir data/eth3d \
+  --preds_dir out/eth3d/ablation_version_2/vggt_rank1/seed_0 \
+  --eval_pointcloud \
+  --eth3d_scans_dir data/eth3d_scans \
+  --eth3d_evaluator tools/eth3d_multi_view_evaluation/build/ETH3DMultiViewEvaluation
+
 """
