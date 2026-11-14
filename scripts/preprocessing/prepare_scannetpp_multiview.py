@@ -7,6 +7,7 @@ run by this script.
 """
 
 import argparse
+import hashlib
 import json
 import pickle
 from pathlib import Path
@@ -23,6 +24,9 @@ def main():
     parser.add_argument("--output-dir", type=Path, required=True,
                         help="Output scene directory, e.g. out/scannetpp/prepared/<scene>")
     parser.add_argument("--max-images", type=int, default=150)
+    parser.add_argument("--candidate-images", type=int, default=150,
+                        help="Evenly spaced candidate pool; -1 uses all eligible frames")
+    parser.add_argument("--sampling-seed", type=int, default=0)
     parser.add_argument("--include-bad", action="store_true")
     args = parser.parse_args()
 
@@ -31,16 +35,27 @@ def main():
     transforms_path = dslr / "nerfstudio/transforms_undistorted.json"
     if not image_dir.is_dir() or not transforms_path.is_file():
         parser.error(f"Missing DSLR images or transforms under {dslr}")
-    if args.max_images < 2:
-        parser.error("--max-images must be at least 2")
+    if args.max_images != -1 and args.max_images < 2:
+        parser.error("--max-images must be -1 or at least 2")
+    if args.candidate_images != -1 and args.candidate_images < 2:
+        parser.error("--candidate-images must be -1 or at least 2")
 
     transforms = json.loads(transforms_path.read_text())
     frames = transforms["frames"] + transforms.get("test_frames", [])
     frames = sorted((frame for frame in frames
                      if args.include_bad or not frame.get("is_bad", False)),
                     key=lambda frame: frame["file_path"])
-    indices = np.linspace(0, len(frames) - 1, min(args.max_images, len(frames)), dtype=int)
-    selected = [frames[index] for index in indices]
+    if len(frames) < 2:
+        parser.error("Need at least two eligible frames")
+    count = len(frames) if args.candidate_images == -1 else min(args.candidate_images, len(frames))
+    indices = np.linspace(0, len(frames) - 1, count, dtype=int)
+    candidates = [frames[index] for index in indices]
+    seed = int.from_bytes(hashlib.sha256(f'{args.scene}:{args.sampling_seed}'.encode()).digest()[:8], 'little')
+    permutation = np.random.default_rng(seed).permutation(count)
+    if args.max_images != -1 and args.max_images > count:
+        parser.error(f"Requested {args.max_images} images but candidate pool contains {count}; use -1 for all")
+    take = count if args.max_images == -1 else args.max_images
+    selected = [candidates[i] for i in sorted(permutation[:take])]
     sources = [(image_dir / frame["file_path"]).resolve() for frame in selected]
     missing = [str(path) for path in sources if not path.is_file()]
     if missing:
@@ -72,6 +87,9 @@ def main():
         "scene": args.scene,
         "dataset_root": str(args.dataset_root.resolve()),
         "max_images": args.max_images,
+        "candidate_images": args.candidate_images,
+        "sampling_seed": args.sampling_seed,
+        "candidate_names": [frame['file_path'] for frame in candidates],
         "include_bad": args.include_bad,
         "names": names,
     }

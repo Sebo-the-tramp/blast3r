@@ -391,7 +391,14 @@ def update_views(views, rigs):
             K = rigs.get_K(i),
             cam2w = rigs.get_cam2w(i),
             depth = combine_depth(view[mdkey], Z, mode=mdkey),
+            depth_mode = mdkey,
         )
+        # Preserve the exact parameters used by combine_depth. A scalar is a
+        # linear depth multiplier, whereas a vector contains basis coefficients.
+        if Z.ndim == 0:
+            new_view['depth_scale'] = Z.clone() if isinstance(Z, torch.Tensor) else Z.copy()
+        else:
+            new_view['z_coefs'] = Z.clone() if isinstance(Z, torch.Tensor) else Z.copy()
         new_view.pop(mdkey) # no need to keep it
         new_view.pop('pts3d', None) # remove it if it's there
         new_views.append(new_view)

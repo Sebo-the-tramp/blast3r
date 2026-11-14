@@ -17,8 +17,10 @@ import torch
 
 
 DATASETS = (
-    {'name': 'ETH3D', 'directory': 'eth3d', 'f1_file': 'eth3d_pointcloud.csv'},
-    {'name': 'ScanNet++', 'directory': 'scannetpp', 'f1_file': 'depth.csv'},
+    {'name': 'ETH3D', 'directory': 'eth3d', 'experiment': 'ablation_version_2',
+     'f1_file': 'eth3d_pointcloud.csv'},
+    {'name': 'ScanNet++', 'directory': 'scannetpp', 'experiment': 'ablation',
+     'f1_file': 'depth.csv'},
 )
 
 # These rows correspond to the two ablation groups in final_table.ltx.
@@ -38,7 +40,10 @@ OURS_ROWS = (
     (r'$r=16$', 'vggt_rank15'),
 )
 
-POSE_COLUMN = 'Racc_1'
+# With the current one-degree histogram implementation in metrics/relpose.py,
+# Auc_1 is combined relative-pose recall: max(rotation, translation direction)
+# at or below one degree. Keep this explicit until a switch to exact AUC is agreed.
+POSE_COLUMN = 'Auc_1'
 F1_COLUMNS = ('f1_1cm', 'f1_2cm', 'f1_5cm', 'f1_20cm')
 
 
@@ -47,7 +52,7 @@ def csv_paths(run_dir, filename):
 
 
 def average_pose(run_dir):
-    """Return mean per-run 5-degree pose accuracy, or None if unavailable."""
+    """Return mean per-run combined relative-pose recall at one degree."""
     values = []
     for path in csv_paths(run_dir, 'relpose.csv'):
         table = pd.read_csv(path, index_col='scene')
@@ -103,7 +108,7 @@ def average_time(run_dir):
 def collect_row_metrics(runs_root, method):
     datasets = []
     for dataset in DATASETS:
-        run_dir = runs_root / dataset['directory'] / 'ablation_version_2' / method
+        run_dir = runs_root / dataset['directory'] / dataset['experiment'] / method
         pose = average_pose(run_dir)
         f1 = average_f1(run_dir, dataset['f1_file'])
         timing = average_time(run_dir)

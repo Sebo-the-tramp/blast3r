@@ -9,7 +9,7 @@
 set -euo pipefail
 
 ETH3D="data/eth3d"
-EXPERIMENT_ROOT="out/eth3d/ablation_version_2"
+EXPERIMENT_ROOT="out/eth3d/ablation_version_3_with_coeff"
 EVAL_ONLY=false
 while (($#)); do
     case "$1" in
@@ -51,17 +51,17 @@ CKPT_VGGT_OMEGA="${CKPT_VGGT_OMEGA:-/fast-storage/huggingface/hub/models--facebo
 # Enable configurations by leaving their names uncommented. Comment out any
 # configuration you want to skip.
 RUNS=(
-    no_ba
-    ba_2d
-    ba_fixed_depth
-    ba_alpha_beta
+    # no_ba
+    # ba_2d
+    # ba_fixed_depth
+    # ba_alpha_beta
     ba_full
     # vggt_alpha_beta
     # vggt_rank1
     # vggt_rank4
     # vggt_rank8
     # vggt_rho95
-    # vggt_rank15
+    vggt_rank15
 )
 
 run_enabled() {

@@ -16,22 +16,30 @@ PYTHON="${PYTHON:-$ROOT/.venv/bin/python}"
 PREPARE="$ROOT/scripts/preprocessing/prepare_scannetpp_multiview.py"
 INFERENCE="$ROOT/scripts/run_offline.py"
 EVALUATOR="$ROOT/src/blast3r/eval/evaluate_scannetpp_multiview.py"
+AGGREGATOR="$ROOT/scripts/aggregate_scannetpp_runs.py"
 DATA_ROOT="${DATA_ROOT:-$ROOT/data/scannet++/data_download/scannetpp/data}"
 PREPARED_ROOT="${PREPARED_ROOT:-$ROOT/out/scannetpp/prepared}"
 RUNS_ROOT="${RUNS_ROOT:-$ROOT/out/scannetpp/ablation}"
 CACHE_ROOT="${CACHE_ROOT:-$ROOT/.cache/blast3r/scannetpp}"
 SEED="${SEED:-0}"
 MAX_IMAGES="${MAX_IMAGES:-150}"
+CANDIDATE_IMAGES="${CANDIDATE_IMAGES:-150}"
+SAMPLING_SEED="${SAMPLING_SEED:-0}"
+# Separate selections from old results and from the retrieval seed SEED.
+SUBSET_TAG="pool_${CANDIDATE_IMAGES}_n_${MAX_IMAGES}_sample_${SAMPLING_SEED}"
+PREPARED_ROOT="$PREPARED_ROOT/$SUBSET_TAG"
+RUNS_ROOT="$RUNS_ROOT/$SUBSET_TAG"
 POINT_STRIDE="${POINT_STRIDE:-4}"
 CONFIDENCE_THRESHOLD="${CONFIDENCE_THRESHOLD:-0}"
 
 CKPT_MATCH="${CKPT_MATCH:-naver/blast3r-matcher}"
-CKPT_DEPTH="${CKPT_DEPTH:-$ROOT/checkpoints/vggt_omega_1b_512.pt}"
-if [[ ! -f "$CKPT_DEPTH" ]]; then
-    CKPT_DEPTH="${CKPT_VGGT_OMEGA:-/fast-storage/huggingface/hub/models--facebook--VGGT-Omega/snapshots/1041e80fc0e911235d3426b0a3d9a81075111a53/vggt_omega_1b_512.pt}"
+CKPT_BLAST3R_DEPTH="${CKPT_BLAST3R_DEPTH:-naver/blast3r-depth}"
+CKPT_VGGT="${CKPT_VGGT:-$ROOT/checkpoints/vggt_omega_1b_512.pt}"
+if [[ ! -f "$CKPT_VGGT" ]]; then
+    CKPT_VGGT="${CKPT_VGGT_OMEGA:-/fast-storage/huggingface/hub/models--facebook--VGGT-Omega/snapshots/1041e80fc0e911235d3426b0a3d9a81075111a53/vggt_omega_1b_512.pt}"
 fi
-if [[ ! -f "$CKPT_DEPTH" ]]; then
-    echo "VGGT-Omega checkpoint not found; set CKPT_DEPTH=/path/to/vggt_omega_1b_512.pt" >&2
+if [[ ! -f "$CKPT_VGGT" ]]; then
+    echo "VGGT-Omega checkpoint not found; set CKPT_VGGT=/path/to/vggt_omega_1b_512.pt" >&2
     exit 1
 fi
 
@@ -43,7 +51,19 @@ DEFAULT_SCENES=(
 )
 read -r -a SCENES <<< "${SCENE_LIST:-${DEFAULT_SCENES[*]}}"
 
-DEFAULT_RUNS=(vggt_alpha_beta vggt_rank1 vggt_rank4 vggt_rank8 vggt_rho95 vggt_rank15)
+DEFAULT_RUNS=(
+    no_ba
+    ba_2d
+    ba_fixed_depth
+    ba_alpha_beta
+    # ba_full
+    vggt_alpha_beta
+    vggt_rank1
+    vggt_rank4
+    vggt_rank8
+    vggt_rho95
+    # vggt_rank15
+)
 read -r -a ENABLED_RUNS <<< "${RUNS:-${DEFAULT_RUNS[*]}}"
 TOLERANCES=(0.01 0.02 0.05 0.1 0.2 0.5)
 
@@ -62,40 +82,88 @@ fi
 
 prepare_scenes() {
     for scene in "${SCENES[@]}"; do
-        if [[ -f "$PREPARED_ROOT/$scene/gt.pkl" ]]; then
-            echo "Prepared scene exists: $scene"
-            continue
-        fi
         "$PYTHON" "$PREPARE" \
             --scene "$scene" \
             --dataset-root "$DATA_ROOT" \
             --output-dir "$PREPARED_ROOT/$scene" \
-            --max-images "$MAX_IMAGES"
+            --max-images "$MAX_IMAGES" \
+            --candidate-images "$CANDIDATE_IMAGES" \
+            --sampling-seed "$SAMPLING_SEED"
     done
 }
 
 run_inference() {
     local arm="$1"
     local output="$RUNS_ROOT/$arm/seed_$SEED"
+    local backend=blast3r
+    local depth_checkpoint="$CKPT_BLAST3R_DEPTH"
     local extra=()
+    local image_dirs=()
+    local scene
+    for scene in "${SCENES[@]}"; do
+        image_dirs+=("$PREPARED_ROOT/$scene/")
+    done
     case "$arm" in
+        no_ba)
+            extra=(--max_iters 0)
+            ;;
+        ba_2d)
+            extra=(--max_iters 100 --weight_z 0 --n_zcfs 2
+                   --optim_K True --optim_P True --optim_Z False)
+            ;;
+        ba_fixed_depth)
+            extra=(--max_iters 100 --weight_z 1e-4 --n_zcfs 1
+                   --optim_K True --optim_P True --optim_Z False)
+            ;;
+        ba_alpha_beta)
+            extra=(--max_iters 100 --weight_z 1e-4 --n_zcfs 2
+                   --optim_K True --optim_P True --optim_Z True)
+            ;;
+        ba_full)
+            extra=(--max_iters 100 --weight_z 1e-4 --n_zcfs 17
+                   --optim_K True --optim_P True --optim_Z True)
+            ;;
         vggt_alpha_beta)
-            extra=(--vggt_feature_rank 0 --n_zcfs 2)
+            backend=vggt_omega
+            depth_checkpoint="$CKPT_VGGT"
+            extra=(--max_iters 100 --weight_z 1e-4 --n_zcfs 2
+                   --optim_K True --optim_P True --optim_Z True
+                   --vggt_feature_rank 0)
             ;;
         vggt_rank1)
-            extra=(--vggt_feature_rank 15 --vggt_effective_rank 1 --vggt_whitening 1 --n_zcfs 17)
+            backend=vggt_omega
+            depth_checkpoint="$CKPT_VGGT"
+            extra=(--max_iters 100 --weight_z 1e-4 --n_zcfs 17
+                   --optim_K True --optim_P True --optim_Z True
+                   --vggt_feature_rank 15 --vggt_effective_rank 1 --vggt_whitening 1)
             ;;
         vggt_rank4)
-            extra=(--vggt_feature_rank 15 --vggt_effective_rank 4 --vggt_whitening 1 --n_zcfs 17)
+            backend=vggt_omega
+            depth_checkpoint="$CKPT_VGGT"
+            extra=(--max_iters 100 --weight_z 1e-4 --n_zcfs 17
+                   --optim_K True --optim_P True --optim_Z True
+                   --vggt_feature_rank 15 --vggt_effective_rank 4 --vggt_whitening 1)
             ;;
         vggt_rank8)
-            extra=(--vggt_feature_rank 15 --vggt_effective_rank 8 --vggt_whitening 1 --n_zcfs 17)
+            backend=vggt_omega
+            depth_checkpoint="$CKPT_VGGT"
+            extra=(--max_iters 100 --weight_z 1e-4 --n_zcfs 17
+                   --optim_K True --optim_P True --optim_Z True
+                   --vggt_feature_rank 15 --vggt_effective_rank 8 --vggt_whitening 1)
             ;;
         vggt_rho95)
-            extra=(--vggt_feature_rank 15 --vggt_feature_rho 0.95 --vggt_whitening 1 --n_zcfs 17)
+            backend=vggt_omega
+            depth_checkpoint="$CKPT_VGGT"
+            extra=(--max_iters 100 --weight_z 1e-4 --n_zcfs 17
+                   --optim_K True --optim_P True --optim_Z True
+                   --vggt_feature_rank 15 --vggt_feature_rho 0.95 --vggt_whitening 1)
             ;;
         vggt_rank15)
-            extra=(--vggt_feature_rank 15 --vggt_whitening 1 --n_zcfs 17)
+            backend=vggt_omega
+            depth_checkpoint="$CKPT_VGGT"
+            extra=(--max_iters 100 --weight_z 1e-4 --n_zcfs 17
+                   --optim_K True --optim_P True --optim_Z True
+                   --vggt_feature_rank 15 --vggt_whitening 1)
             ;;
         *)
             echo "Unknown run: $arm" >&2
@@ -105,18 +173,13 @@ run_inference() {
 
     echo "Running inference: $arm, seed $SEED"
     "$PYTHON" "$INFERENCE" \
-        --images "$PREPARED_ROOT"/*/ \
+        --images "${image_dirs[@]}" \
         --output "$output" \
         --ckpt_match "$CKPT_MATCH" \
-        --ckpt_depth "$CKPT_DEPTH" \
-        --depth_backend vggt_omega \
+        --ckpt_depth "$depth_checkpoint" \
+        --depth_backend "$backend" \
         --size 512 \
-        --max_iters 100 \
-        --weight_z 1e-4 \
         --mono_cam \
-        --optim_K True \
-        --optim_P True \
-        --optim_Z True \
         --seed "$SEED" \
         --export_mode full \
         --use_cache \
@@ -158,3 +221,9 @@ for arm in "${ENABLED_RUNS[@]}"; do
     fi
     evaluate_run "$arm"
 done
+
+if [[ -z "${SCENE_LIST:-}" ]]; then
+    "$PYTHON" "$AGGREGATOR" --runs-root "$RUNS_ROOT" --expected-scenes "${#SCENES[@]}"
+else
+    echo "Skipping automatic CSV aggregation for a SCENE_LIST subset."
+fi

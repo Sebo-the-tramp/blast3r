@@ -35,7 +35,8 @@ def init_view(view, conf, pts3d_in_cam, multidepth, depth_mode, optim_K, optim_P
 
 EXPORT_KEYS = {
     'pose': ('K', 'cam2w'),
-    'full': ('img', 'K', 'cam2w', 'depth', 'conf'),
+    'full': ('img', 'K', 'cam2w', 'depth', 'conf',
+             'z_coefs', 'depth_scale', 'depth_mode'),
 }
 
 

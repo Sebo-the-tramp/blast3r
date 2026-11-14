@@ -74,6 +74,55 @@ def compute_pts3d_multidepths(model, views, capture_backend_data=False,
 
 
 @torch.inference_mode()
+def save_multidepth_viz(views, multidepth):
+    """Save BLASt3R log-depth and basis maps, including cached outputs."""
+    # Channel 1 is the fixed bias term; channel 0 is log-depth, and remaining
+    # channels are the basis maps.
+    for index, maps in enumerate(multidepth):
+        log_depth = maps[..., 0]
+        basis = maps[..., 2:]
+        # Figure D in the paper keeps the main channel unchanged and applies
+        # Gram-Schmidt to each corrective channel relative to the main channel
+        # and the preceding corrections. This changes only the visualization.
+        orthonormal = []
+        main_flat = log_depth.flatten()
+        main_norm = torch.linalg.vector_norm(main_flat)
+        if main_norm > 1e-8:
+            orthonormal.append(main_flat / main_norm)
+        orthogonal_basis = []
+        for channel in basis.permute(2, 0, 1)[:14]:
+            residual = channel.flatten().clone()
+            for previous in orthonormal:
+                residual -= torch.dot(residual, previous) * previous
+            residual_norm = torch.linalg.vector_norm(residual)
+            if residual_norm > 1e-8:
+                residual /= residual_norm
+                orthonormal.append(residual)
+            else:
+                residual.zero_()
+            orthogonal_basis.append(residual.reshape_as(channel))
+
+        depth_viz = (log_depth - log_depth.amin()) / (log_depth.amax() - log_depth.amin()).clamp_min(1e-8)
+        depth_rgb = torch.from_numpy(
+            colormaps['viridis'](depth_viz.cpu().numpy())[..., :3]
+        ).permute(2, 0, 1)
+        basis_rgb = []
+        basis_scale = (torch.stack(orthogonal_basis).abs().amax().clamp_min(1e-8)
+                       if orthogonal_basis else maps.new_tensor(1.0))
+        for channel in orthogonal_basis:
+            normalized = 0.5 + 0.5 * channel / basis_scale
+            basis_rgb.append(torch.from_numpy(
+                colormaps['viridis'](normalized.cpu().numpy())[..., :3]
+            ).permute(2, 0, 1))
+        tiles = torch.stack([depth_rgb, *basis_rgb]).float()
+        name = Path(str(views.get('instance', [str(index)] * len(multidepth))[index])).stem
+        label = str(views.get('label', ['scene'] * len(multidepth))[index])
+        viz_path = Path('.cache/blast3r/multidepth_viz') / label / f'{name}.png'
+        viz_path.parent.mkdir(parents=True, exist_ok=True)
+        save_image(make_grid(tiles, nrow=4), viz_path)
+
+
+@torch.inference_mode()
 def compute_vggt_omega_depths(model, views, capture_backend_data=False,
                               backend_data=None, feature_rank=0, whitening=1.0,
                               effective_rank=None, variance_rho=None):

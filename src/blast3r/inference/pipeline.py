@@ -17,7 +17,7 @@ from .denoise import denoise_views
 from .engine import bundle_adjustment, used_depth_channels
 from .loading import get_ntokens
 from .multidepth import (compute_pts3d_multidepths, extract_vggt_omega_backend,
-                         vggt_omega_backend_to_multidepth)
+                         save_multidepth_viz, vggt_omega_backend_to_multidepth)
 from .results import get_at, init_view
 from .rigs import gather_pts3d, init_last_pose, init_poses_minspan_tree, update_views
 from .timing import timer
@@ -138,6 +138,9 @@ def run_inference(views, depther, matcher,
         ptmap = depth['ptmap']
         multidepth = depth['multidepth']
         depth_mode = depth['depth_mode']
+
+    if not is_vggt:
+        save_multidepth_viz(raw_views, multidepth)
 
     views = [init_view(get_at(raw_views, i), conf[i], ptmap[i], multidepth[i], depth_mode,
                        BA_args['optim_K'], BA_args['optim_P'])
