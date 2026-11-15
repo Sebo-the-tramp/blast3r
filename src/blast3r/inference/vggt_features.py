@@ -38,8 +38,10 @@ def pca_whiten_feature_map(feature, rank, output_shape, shrinkage=1.0, device=No
         return basis, {'effective_rank': 0, 'rho_rank': None, 'variance': 0.0}
 
     # The fp16 cached tensor is the canonical ablation input.  Do all linear
-    # algebra in fp32, on the requested inference device.
-    x = feature.to(device=device, dtype=torch.float32)
+    # algebra in fp64, on the requested inference device: the trailing
+    # eigenvalues reach ~1e-8 of the largest, below fp32 precision, and fp32
+    # whitening blew those components up by orders of magnitude.
+    x = feature.to(device=device, dtype=torch.float64)
     x = x.permute(1, 2, 0).reshape(height * width, channels)
     x = x - x.mean(dim=0, keepdim=True)
 
@@ -61,11 +63,13 @@ def pca_whiten_feature_map(feature, rank, output_shape, shrinkage=1.0, device=No
     else:
         active_rank = rank if effective_rank is None else effective_rank
 
-    eigenvalues = spectrum[:rank].clamp_min(1e-14)
+    # Relative floor: only guards exactly degenerate directions (e.g. a constant
+    # channel), whose projections are ~0 and must not be divided by ~0.
+    eigenvalues = spectrum[:rank].clamp_min(max(1e-12 * float(spectrum[0]), 1e-30))
     eigenvectors = eigenvectors[:, order[:rank]]
 
     projection = eigenvectors * eigenvalues.pow(-0.5 * shrinkage).unsqueeze(0)
-    projected = x @ projection
+    projected = (x @ projection).to(torch.float32)
 
     # Eigenvector signs are arbitrary.  Fix each sign using its largest-magnitude
     # projected value so cache hits and fresh runs produce visualizable maps with
