@@ -911,8 +911,10 @@ class OneBlockPerRow(SparseBlockMat):
         # default choice = BlockCOO
         if Nc == flat_idx.numel():
             # no need to do any aggregation
-            blocks = torch.cat([fused_einsum_bki_bkj(self_blocks[s:e], right_blocks[s:e])
-                                for s, e in _row_chunks(HB1, bw1 * bw2, self_blocks.element_size())])
+            # filled in place: concatenating chunks would briefly hold two copies
+            blocks = torch.empty((HB1, bw1, bw2), dtype=self_blocks.dtype, device=self_blocks.device)
+            for s, e in _row_chunks(HB1, bw1 * bw2, self_blocks.element_size()):
+                blocks[s:e] = fused_einsum_bki_bkj(self_blocks[s:e], right_blocks[s:e])
             return BlockCOOMat(blocks, self._col_indices, right._col_indices, (WB1, WB2))
         else:
             out2 = torch.zeros((Nc, bw1, bw2), device=self.device, dtype=self.dtype)
