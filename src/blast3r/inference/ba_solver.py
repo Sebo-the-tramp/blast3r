@@ -875,8 +875,13 @@ class OneBlockPerRow(SparseBlockMat):
         else:
             raise NotImplementedError()
 
-        # (HB, bw1, bh) @ (HB, bh, bw2) -> (HB, bw1, bw2)
-        blocks = fused_einsum_bki_bkj(self_blocks, right_blocks)
+        # (HB, bw1, bh) @ (HB, bh, bw2) -> (HB, bw1, bw2), summed into out2 at `index`. Done in
+        # row chunks when the per-row blocks would be large (many depth channels); with the
+        # usual <= 17 channels this is a single chunk, i.e. the original computation.
+        def accumulate(out2, index):
+            for s, e in _row_chunks(HB1, bw1 * bw2, self_blocks.element_size()):
+                out2.index_add_(0, index[s:e], fused_einsum_bki_bkj(self_blocks[s:e], right_blocks[s:e]))
+            return out2
 
         # let's find out which blocks are occupied: output matrix has size (WB1, WB2)
         flat_idx = self._col_indices * WB2 + right._col_indices
@@ -885,31 +890,33 @@ class OneBlockPerRow(SparseBlockMat):
 
         if one_block_per_col(Nc, right._col_indices, WB2): # one block per column!
             out2 = torch.zeros((WB2, bw1, bw2), dtype=self.dtype, device=self.device)
-            out2.index_add_(0, right._col_indices, blocks)      # sum blocks hitting same place
+            accumulate(out2, right._col_indices)      # sum blocks hitting same place
             row_idxs = torch.empty((WB2,), dtype=torch.long, device=out2.device)
             row_idxs.index_put_((right._col_indices,), self._col_indices)
             return OneBlockPerRow(out2.transpose(-1,-2), row_idxs, (WB2, WB1), transposed=True)
 
         if one_block_per_col(Nc, self._col_indices, WB1): # one block per row!
             out2 = torch.zeros((WB1, bw1, bw2), dtype=self.dtype, device=self.device)
-            out2.index_add_(0, self._col_indices, blocks)      # sum blocks hitting same place
+            accumulate(out2, self._col_indices)      # sum blocks hitting same place
             col_idxs = torch.empty((WB1,), dtype=torch.long, device=out2.device)
             col_idxs.index_put_((self._col_indices,), right._col_indices)
             return OneBlockPerRow(out2, col_idxs, (WB1, WB2))
 
         if Nc > 0.5*WB1*WB2: # more than half of blocks are occupied ==> dense
             out2 = torch.zeros((WB1*WB2, bw1, bw2), dtype=self.dtype, device=self.device)
-            out2.index_add_(0, flat_idx, blocks)      # sum blocks hitting same place
+            accumulate(out2, flat_idx)      # sum blocks hitting same place
             dense_out2 = out2.view(WB1, WB2, bw1, bw2).permute(0,2,1,3).reshape(WB1*bw1, WB2*bw2)
             return DenseMat(dense_out2)
 
         # default choice = BlockCOO
         if Nc == flat_idx.numel():
             # no need to do any aggregation
+            blocks = torch.cat([fused_einsum_bki_bkj(self_blocks[s:e], right_blocks[s:e])
+                                for s, e in _row_chunks(HB1, bw1 * bw2, self_blocks.element_size())])
             return BlockCOOMat(blocks, self._col_indices, right._col_indices, (WB1, WB2))
         else:
             out2 = torch.zeros((Nc, bw1, bw2), device=self.device, dtype=self.dtype)
-            out2.index_add_(0, inv, blocks)  # accumulate duplicates
+            accumulate(out2, inv)  # accumulate duplicates
             return BlockCOOMat(out2, uniq // WB2, uniq % WB2, (WB1, WB2))
 
     def gram_matrix(self):
@@ -919,12 +926,13 @@ class OneBlockPerRow(SparseBlockMat):
         if self.transposed:
             raise NotImplementedError()
         else:
-            # (HB, bw, bh) @ (HB, bh, bw) --> (HB, bw, bw)
-            blocks = fused_einsum_bki_bkj(self._blocks, self._blocks)
-
-            # accumulator into block-diagonal matrix
-            out2 = torch.zeros((WB, bw*bw), dtype=blocks.dtype, device=blocks.device)
-            out2.index_add_(0, self._col_indices, blocks.view(HB, bw*bw))      # sum rows hitting same column
+            # (HB, bw, bh) @ (HB, bh, bw) --> (HB, bw, bw), accumulated into a block-diagonal
+            # matrix (sum rows hitting same column). Row chunks bound the per-row blocks for
+            # many depth channels; with <= 17 channels this is a single chunk.
+            out2 = torch.zeros((WB, bw*bw), dtype=self._blocks.dtype, device=self._blocks.device)
+            for s, e in _row_chunks(HB, bw * bw, self._blocks.element_size()):
+                blocks = fused_einsum_bki_bkj(self._blocks[s:e], self._blocks[s:e])
+                out2.index_add_(0, self._col_indices[s:e], blocks.view(e - s, bw*bw))
             return BlockDiagMat(out2.view(WB, bw, bw))
 
     def __rmatmul__(self, left):
@@ -967,6 +975,15 @@ class OneBlockPerRow(SparseBlockMat):
         out2 = torch.zeros((WB2, H1, c2), dtype=self.dtype, device=self.device)
         out2.index_add_(0, self._col_indices, per_row)        # sum rows hitting same column
         return DenseMat(out2.view(H1, WB2 * c2))
+
+
+_CHUNK_BYTES = 4 << 30  # per-row block intermediates above this are computed in row chunks
+
+
+def _row_chunks(n_rows, block_numel, element_size):
+    """(start, end) row ranges whose [rows, block_numel] intermediate stays under _CHUNK_BYTES."""
+    step = max(1, _CHUNK_BYTES // max(1, block_numel * element_size))
+    return [(s, min(s + step, n_rows)) for s in range(0, n_rows, step)] or [(0, 0)]
 
 
 def one_block_per_col(n_unique_cells, col_idxs, n_columns):
